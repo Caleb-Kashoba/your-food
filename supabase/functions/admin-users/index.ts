@@ -1,17 +1,28 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.116.0';
 
+import {
+  canInviteRole,
+  normalizeCongolesePhone,
+  type AppRole,
+  type InvitationChannel
+} from './policy.ts';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
 };
 
-type AppRole = 'root' | 'admin' | 'manager' | 'staff';
+const redirectTo = 'yourfoodadmin://auth/activate';
+const allowedRoles: AppRole[] = ['root', 'admin', 'manager', 'staff'];
+const allowedChannels: InvitationChannel[] = ['email', 'whatsapp'];
 
 interface InviteBody {
   action: 'invite';
   email: string;
   displayName: string;
+  whatsapp?: string | null;
   role: AppRole;
+  channel: InvitationChannel;
 }
 
 function json(body: unknown, status = 200) {
@@ -21,9 +32,25 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function getInvitationExpiry() {
+  const configuredSeconds = Number(Deno.env.get('INVITE_LINK_EXPIRY_SECONDS') ?? '3600');
+  const seconds = Number.isFinite(configuredSeconds)
+    ? Math.min(Math.max(Math.trunc(configuredSeconds), 60), 86_400)
+    : 3600;
+
+  return new Date(Date.now() + seconds * 1000).toISOString();
+}
+
+function isEmail(value: string) {
+  return /^[^\s@%_]+@[^\s@%_]+\.[^\s@%_]+$/.test(value);
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  let createdUserId: string | null = null;
+  let service: ReturnType<typeof createClient> | null = null;
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -32,12 +59,29 @@ Deno.serve(async (request) => {
     if (!supabaseUrl || !serviceRoleKey) throw new Error('Server secrets are not configured');
     if (!authorization?.startsWith('Bearer ')) return json({ error: 'Authentication required' }, 401);
 
-    const service = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false }
+    service = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false }
     });
     const token = authorization.slice('Bearer '.length);
     const { data: authData, error: authError } = await service.auth.getUser(token);
     if (authError || !authData.user) return json({ error: 'Invalid session' }, 401);
+
+    const body = (await request.json()) as InviteBody;
+    const email = body.email?.trim().toLowerCase();
+    const displayName = body.displayName?.trim();
+
+    if (body.action !== 'invite') return json({ error: 'Unsupported action' }, 400);
+    if (!email || !isEmail(email) || !displayName) return json({ error: 'Invalid invitation data' }, 400);
+    if (!allowedRoles.includes(body.role)) return json({ error: 'Invalid role' }, 400);
+    if (!allowedChannels.includes(body.channel)) return json({ error: 'Invalid invitation channel' }, 400);
+
+    const normalizedWhatsApp = normalizeCongolesePhone(body.whatsapp);
+    if (body.whatsapp?.trim() && !normalizedWhatsApp) {
+      return json({ error: 'Invalid WhatsApp number' }, 400);
+    }
+    if (body.channel === 'whatsapp' && !normalizedWhatsApp) {
+      return json({ error: 'A WhatsApp number is required for this channel' }, 400);
+    }
 
     const { data: caller, error: callerError } = await service
       .from('organization_members')
@@ -52,6 +96,8 @@ Deno.serve(async (request) => {
       | Array<{ name: AppRole; hierarchy_level: number }>;
     const callerRoleRecord = Array.isArray(callerRoleRelation) ? callerRoleRelation[0] : callerRoleRelation;
     const callerRole = callerRoleRecord?.name;
+    if (!callerRole) return json({ error: 'Caller role not found' }, 403);
+
     const { data: permissionRows, error: permissionError } = await service
       .from('role_permissions')
       .select('permissions!inner(code)')
@@ -60,54 +106,91 @@ Deno.serve(async (request) => {
     const permissionCodes = (permissionRows as unknown as Array<{
       permissions: { code: string } | Array<{ code: string }>;
     }>).map((row) => Array.isArray(row.permissions) ? row.permissions[0]?.code : row.permissions.code);
-    if (callerRole !== 'root' && !permissionCodes.includes('users.create')) {
-      return json({ error: 'Permission denied' }, 403);
+
+    if (!canInviteRole(callerRole, body.role, permissionCodes.includes('users.create'))) {
+      const error = body.role === 'root' || body.role === 'admin'
+        ? 'Only a root can invite admin or root users'
+        : 'Permission denied';
+      return json({ error }, 403);
     }
 
-    const body = (await request.json()) as InviteBody;
-    if (body.action !== 'invite') return json({ error: 'Unsupported action' }, 400);
-    if (!body.email?.includes('@') || !body.displayName?.trim()) return json({ error: 'Invalid invitation data' }, 400);
-    if (!['root', 'admin', 'manager', 'staff'].includes(body.role)) return json({ error: 'Invalid role' }, 400);
-    if (callerRole !== 'root' && (body.role === 'root' || body.role === 'admin')) {
-      return json({ error: 'Only a root can invite admin or root users' }, 403);
+    await service.rpc('expire_internal_user_invitations');
+
+    const { data: existingProfile, error: existingProfileError } = await service
+      .from('profiles')
+      .select('id')
+      .ilike('email', email)
+      .maybeSingle();
+    if (existingProfileError) throw existingProfileError;
+    if (existingProfile) {
+      return json({ error: 'Un compte existe déjà avec cette adresse e-mail.' }, 409);
     }
 
-    const { data: role, error: roleError } = await service
-      .from('roles')
-      .select('id, hierarchy_level')
-      .eq('name', body.role)
-      .single();
-    if (roleError || !role) throw roleError ?? new Error('Role not found');
-    if (callerRole !== 'root' && role.hierarchy_level > (callerRoleRecord?.hierarchy_level ?? 0)) {
-      return json({ error: 'Cannot invite a user with a higher role' }, 403);
+    const metadata = {
+      display_name: displayName,
+      whatsapp: normalizedWhatsApp,
+      requested_role: body.role,
+      invitation_channel: body.channel
+    };
+    let inviteLink: string | undefined;
+    let invitedUserId: string;
+
+    if (body.channel === 'email') {
+      const { data: invitation, error: inviteError } = await service.auth.admin.inviteUserByEmail(email, {
+        data: metadata,
+        redirectTo
+      });
+      if (inviteError || !invitation.user) throw inviteError ?? new Error('Invitation failed');
+      invitedUserId = invitation.user.id;
+    } else {
+      const { data: invitation, error: inviteError } = await service.auth.admin.generateLink({
+        type: 'invite',
+        email,
+        options: { data: metadata, redirectTo }
+      });
+      if (inviteError || !invitation.user || !invitation.properties?.action_link) {
+        throw inviteError ?? new Error('Invitation link generation failed');
+      }
+      invitedUserId = invitation.user.id;
+      inviteLink = invitation.properties.action_link;
     }
+    createdUserId = invitedUserId;
 
-    const { data: invitation, error: inviteError } = await service.auth.admin.inviteUserByEmail(body.email.trim(), {
-      data: { display_name: body.displayName.trim() },
-      redirectTo: 'yourfoodadmin://sign-in'
-    });
-    if (inviteError || !invitation.user) throw inviteError ?? new Error('Invitation failed');
-
-    const { error: profileError } = await service.from('profiles').upsert({
-      id: invitation.user.id,
-      display_name: body.displayName.trim(),
-      email: body.email.trim().toLowerCase()
-    });
-    if (profileError) throw profileError;
-
-    const { error: membershipError } = await service.from('organization_members').upsert(
+    const expiresAt = getInvitationExpiry();
+    const { data: invitationId, error: registrationError } = await service.rpc(
+      'register_internal_user_invitation',
       {
-        organization_id: caller.organization_id,
-        user_id: invitation.user.id,
-        role_id: role.id,
-        status: 'active'
-      },
-      { onConflict: 'organization_id,user_id' }
+        p_actor_user_id: authData.user.id,
+        p_invited_user_id: invitedUserId,
+        p_email: email,
+        p_display_name: displayName,
+        p_whatsapp: normalizedWhatsApp,
+        p_requested_role: body.role,
+        p_channel: body.channel,
+        p_expires_at: expiresAt
+      }
     );
-    if (membershipError) throw membershipError;
+    if (registrationError || !invitationId) {
+      throw registrationError ?? new Error('Invitation registration failed');
+    }
 
-    return json({ userId: invitation.user.id, invited: true }, 201);
+    createdUserId = null;
+    return json(
+      {
+        invitationId,
+        userId: invitedUserId,
+        channel: body.channel,
+        status: 'pending',
+        expiresAt,
+        ...(inviteLink ? { inviteLink } : {})
+      },
+      201
+    );
   } catch (error) {
+    if (createdUserId && service) {
+      await service.auth.admin.deleteUser(createdUserId).catch(() => undefined);
+    }
+
     const message = error instanceof Error ? error.message : 'Unexpected server error';
     return json({ error: message }, 400);
   }

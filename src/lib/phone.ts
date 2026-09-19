@@ -13,3 +13,12 @@ export function buildWhatsAppUrl(phone: string, message: string): string {
 
   return `https://wa.me/${normalized.slice(1)}?text=${encodeURIComponent(message)}`;
 }
+
+export function buildWhatsAppAppUrl(phone: string, message: string): string {
+  const normalized = normalizePhone(phone);
+  if (!normalized) {
+    throw new Error('Le numéro WhatsApp est invalide.');
+  }
+
+  return `whatsapp://send?phone=${normalized.slice(1)}&text=${encodeURIComponent(message)}`;
+}

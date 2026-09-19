@@ -1,8 +1,14 @@
 import type { Session } from '@supabase/supabase-js';
-import { AppState } from 'react-native';
+import { AppState, Linking } from 'react-native';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import { bootstrapFirstRoot, loadCurrentMember, signInWithPassword, signOut } from '@/features/auth/auth.service';
+import {
+  bootstrapFirstRoot,
+  createSessionFromAuthLink,
+  loadCurrentMember,
+  signInWithPassword,
+  signOut
+} from '@/features/auth/auth.service';
 import { getErrorMessage } from '@/lib/errors';
 import { supabase } from '@/lib/supabase/client';
 import type { CurrentMember } from '@/types/domain';
@@ -43,18 +49,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const client = supabase;
+    let mounted = true;
 
-    void client.auth.getSession().then(async ({ data, error: sessionError }) => {
+    const applySession = async (nextSession: Session | null) => {
+      if (!mounted) return;
+      setSession(nextSession);
+      setMember(nextSession ? await loadCurrentMember(nextSession) : null);
+    };
+
+    const processAuthUrl = async (url: string) => {
+      setLoading(true);
       try {
-        if (sessionError) throw sessionError;
-        setSession(data.session);
-        if (data.session) setMember(await loadCurrentMember(data.session));
+        const linkedSession = await createSessionFromAuthLink(url);
+        if (linkedSession) await applySession(linkedSession);
+        setError(null);
       } catch (caught) {
-        setError(getErrorMessage(caught));
+        if (mounted) setError(getErrorMessage(caught));
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
-    });
+    };
+
+    void (async () => {
+      try {
+        const initialUrl = await Linking.getInitialURL();
+        const linkedSession = initialUrl ? await createSessionFromAuthLink(initialUrl) : null;
+        if (linkedSession) {
+          await applySession(linkedSession);
+          return;
+        }
+
+        const { data, error: sessionError } = await client.auth.getSession();
+        if (sessionError) throw sessionError;
+        await applySession(data.session);
+      } catch (caught) {
+        if (mounted) setError(getErrorMessage(caught));
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
 
     const { data: listener } = client.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
@@ -72,10 +105,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (state === 'active') client.auth.startAutoRefresh();
       else client.auth.stopAutoRefresh();
     });
+    const linkingListener = Linking.addEventListener('url', ({ url }) => {
+      void processAuthUrl(url);
+    });
 
     return () => {
+      mounted = false;
       listener.subscription.unsubscribe();
       appStateListener.remove();
+      linkingListener.remove();
     };
   }, []);
 

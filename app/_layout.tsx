@@ -33,9 +33,10 @@ function AppNavigator() {
     if (loading || envError) return;
     const onSignIn = pathname === '/sign-in';
     const onBootstrap = pathname === '/bootstrap';
+    const onActivation = pathname === '/auth/activate';
 
-    if (!session && !onSignIn) router.replace('/sign-in');
-    else if (session && !member && !onBootstrap) router.replace('/bootstrap');
+    if (!session && !onSignIn && !onActivation) router.replace('/sign-in');
+    else if (session && !member && !onBootstrap && !onActivation) router.replace('/bootstrap');
     else if (session && member && (onSignIn || onBootstrap || pathname === '/')) router.replace('/(tabs)');
   }, [loading, member, pathname, router, session]);
 
@@ -66,6 +67,7 @@ function AppNavigator() {
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/activate" options={{ title: 'Activer mon compte', headerBackVisible: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="bootstrap" options={{ title: 'Initialisation sécurisée', headerBackVisible: false }} />
         <Stack.Screen name="customers/new" options={{ title: 'Nouveau client' }} />

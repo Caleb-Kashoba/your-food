@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js';
 
+import { parseAuthLink } from '@/features/auth/auth-link';
 import { requireSupabase } from '@/lib/supabase/client';
 import type { AppRole, CurrentMember } from '@/types/domain';
 
@@ -23,6 +24,34 @@ export async function signInWithPassword(email: string, password: string) {
 
 export async function signOut() {
   const { error } = await requireSupabase().auth.signOut();
+  if (error) throw error;
+}
+
+export async function createSessionFromAuthLink(url: string): Promise<Session | null> {
+  const client = requireSupabase();
+  const result = parseAuthLink(url);
+
+  if (result.kind === 'none') return null;
+  if (result.kind === 'error') {
+    const message = result.code === 'otp_expired'
+      ? 'Ce lien d’invitation est invalide ou a expiré. Demandez une nouvelle invitation.'
+      : result.message;
+    throw new Error(message);
+  }
+
+  const sessionResult = result.kind === 'session'
+    ? await client.auth.setSession({ access_token: result.accessToken, refresh_token: result.refreshToken })
+    : await client.auth.exchangeCodeForSession(result.code);
+  if (sessionResult.error) throw sessionResult.error;
+  if (!sessionResult.data.session) throw new Error('La session d’invitation n’a pas pu être créée.');
+
+  const { error: acceptanceError } = await client.rpc('accept_my_pending_invitations');
+  if (acceptanceError) throw acceptanceError;
+  return sessionResult.data.session;
+}
+
+export async function setInvitedUserPassword(password: string): Promise<void> {
+  const { error } = await requireSupabase().auth.updateUser({ password });
   if (error) throw error;
 }
 

@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -7,8 +8,10 @@ import { AppInput } from '@/components/ui/AppInput';
 import { Screen } from '@/components/ui/Screen';
 import { EmptyView, ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { buildInvitationMessage, type InvitationChannel } from '@/features/users/invitation';
 import { changeMemberRole, inviteTeamMember, listTeamMembers, setMemberStatus } from '@/features/users/users.service';
 import { getErrorMessage } from '@/lib/errors';
+import { normalizePhone } from '@/lib/phone';
 import { colors, radii, spacing } from '@/theme/colors';
 import type { AppRole } from '@/types/domain';
 
@@ -17,12 +20,14 @@ const roleLevels: Record<AppRole, number> = { root: 100, admin: 80, manager: 50,
 
 export default function UsersScreen() {
   const { member, hasPermission } = useAuth();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const team = useQuery({ queryKey: ['team-members'], queryFn: listTeamMembers });
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
   const [inviteRole, setInviteRole] = useState<AppRole>('staff');
-  const [inviting, setInviting] = useState(false);
+  const [invitingChannel, setInvitingChannel] = useState<InvitationChannel | null>(null);
   const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
 
   const canAssign = (targetRole: AppRole, role: AppRole) => {
@@ -69,19 +74,58 @@ export default function UsersScreen() {
     );
   };
 
-  const invite = async () => {
-    if (!email.trim() || !displayName.trim()) return;
+  const invite = async (channel: InvitationChannel) => {
+    if (!email.trim() || !displayName.trim()) {
+      Alert.alert('Informations manquantes', 'Saisissez le nom et l’adresse e-mail.');
+      return;
+    }
+
+    const normalizedWhatsApp = whatsapp.trim() ? normalizePhone(whatsapp) : null;
+    if (whatsapp.trim() && !normalizedWhatsApp) {
+      Alert.alert('Numéro invalide', 'Utilisez un numéro WhatsApp valide, par exemple 0812345678.');
+      return;
+    }
+    if (channel === 'whatsapp' && !normalizedWhatsApp) {
+      Alert.alert('Numéro requis', 'Le numéro WhatsApp est obligatoire pour partager cette invitation.');
+      return;
+    }
+
     try {
-      setInviting(true);
-      await inviteTeamMember(email, displayName, inviteRole);
+      setInvitingChannel(channel);
+      const result = await inviteTeamMember({
+        email,
+        displayName,
+        whatsapp: normalizedWhatsApp,
+        role: inviteRole,
+        channel
+      });
+      const invitedName = displayName.trim();
       setEmail('');
       setDisplayName('');
-      Alert.alert('Invitation envoyée', 'Le membre recevra un e-mail de Supabase Auth.');
+      setWhatsapp('');
       await queryClient.invalidateQueries({ queryKey: ['team-members'] });
+
+      if (channel === 'email') {
+        Alert.alert('Invitation envoyée', 'Le membre recevra un e-mail sécurisé de Supabase Auth.');
+        return;
+      }
+
+      if (!result.inviteLink || !normalizedWhatsApp) {
+        throw new Error('Le lien d’invitation WhatsApp n’a pas été retourné.');
+      }
+      router.push({
+        pathname: '/whatsapp/compose',
+        params: {
+          phone: normalizedWhatsApp,
+          customerName: invitedName,
+          initialMessage: buildInvitationMessage(invitedName, inviteRole, result.inviteLink),
+          inviteLink: result.inviteLink
+        }
+      });
     } catch (error) {
       Alert.alert('Invitation impossible', getErrorMessage(error));
     } finally {
-      setInviting(false);
+      setInvitingChannel(null);
     }
   };
 
@@ -95,6 +139,14 @@ export default function UsersScreen() {
           <Text style={styles.title}>Inviter un membre</Text>
           <AppInput autoCapitalize="words" label="Nom affiché" onChangeText={setDisplayName} value={displayName} />
           <AppInput autoCapitalize="none" keyboardType="email-address" label="E-mail" onChangeText={setEmail} value={email} />
+          <AppInput
+            autoCapitalize="none"
+            keyboardType="phone-pad"
+            label="Numéro WhatsApp"
+            onChangeText={setWhatsapp}
+            placeholder="0812345678"
+            value={whatsapp}
+          />
           <View style={styles.roles}>
             {roles.filter((role) => member?.role === 'root' || (member && roleLevels[role] < roleLevels[member.role])).map((role) => (
               <Pressable key={role} onPress={() => setInviteRole(role)} style={[styles.roleChip, inviteRole === role && styles.roleChipActive]}>
@@ -102,7 +154,19 @@ export default function UsersScreen() {
               </Pressable>
             ))}
           </View>
-          <AppButton label="Envoyer l’invitation" loading={inviting} onPress={() => void invite()} />
+          <AppButton
+            disabled={invitingChannel !== null}
+            label="Envoyer par e-mail"
+            loading={invitingChannel === 'email'}
+            onPress={() => void invite('email')}
+          />
+          <AppButton
+            disabled={invitingChannel !== null}
+            label="Envoyer par WhatsApp"
+            loading={invitingChannel === 'whatsapp'}
+            onPress={() => void invite('whatsapp')}
+            variant="secondary"
+          />
         </View>
       ) : null}
       <Text style={styles.title}>Équipe</Text>
@@ -114,6 +178,7 @@ export default function UsersScreen() {
             <View style={styles.grow}>
               <Text style={styles.name}>{item.displayName}</Text>
               <Text style={styles.meta}>{item.email}</Text>
+              {item.whatsapp ? <Text style={styles.meta}>{item.whatsapp}</Text> : null}
               <Text style={styles.currentRole}>{item.role} · {item.status === 'active' ? 'actif' : 'désactivé'}</Text>
             </View>
           </View>
