@@ -42,7 +42,7 @@ function getInvitationExpiry() {
 }
 
 function isEmail(value: string) {
-  return /^[^\s@%_]+@[^\s@%_]+\.[^\s@%_]+$/.test(value);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 Deno.serve(async (request) => {
@@ -123,7 +123,44 @@ Deno.serve(async (request) => {
       .maybeSingle();
     if (existingProfileError) throw existingProfileError;
     if (existingProfile) {
-      return json({ error: 'Un compte existe déjà avec cette adresse e-mail.' }, 409);
+      const { data: existingMemberships, error: membershipsError } = await service
+        .from('organization_members')
+        .select('id, organization_id, status')
+        .eq('user_id', existingProfile.id);
+      if (membershipsError) throw membershipsError;
+
+      const { data: previousInvitations, error: invitationsError } = await service
+        .from('internal_user_invitations')
+        .select('id, organization_id, status')
+        .eq('invited_user_id', existingProfile.id)
+        .order('created_at', { ascending: false });
+      if (invitationsError) throw invitationsError;
+
+      const hasActiveMembership = (existingMemberships ?? []).some((membership) => membership.status === 'active');
+      const belongsToAnotherOrganization = (existingMemberships ?? []).some(
+        (membership) => membership.organization_id !== caller.organization_id
+      );
+      const hasAcceptedInvitation = (previousInvitations ?? []).some((invitation) => invitation.status === 'accepted');
+      const hasInvitationHistory = (previousInvitations ?? []).length > 0;
+
+      if (hasActiveMembership || belongsToAnotherOrganization || hasAcceptedInvitation || !hasInvitationHistory) {
+        return json(
+          { error: 'Un compte existe déjà avec cette adresse e-mail. Réactivez le compte existant au lieu de créer une nouvelle invitation.' },
+          409
+        );
+      }
+
+      const now = new Date().toISOString();
+      const { error: cancelError } = await service
+        .from('internal_user_invitations')
+        .update({ status: 'cancelled', cancelled_at: now })
+        .eq('organization_id', caller.organization_id)
+        .eq('invited_user_id', existingProfile.id)
+        .eq('status', 'pending');
+      if (cancelError) throw cancelError;
+
+      const { error: deleteError } = await service.auth.admin.deleteUser(existingProfile.id);
+      if (deleteError) throw deleteError;
     }
 
     const metadata = {

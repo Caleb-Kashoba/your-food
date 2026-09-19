@@ -45,8 +45,15 @@ export async function createSessionFromAuthLink(url: string): Promise<Session | 
   if (sessionResult.error) throw sessionResult.error;
   if (!sessionResult.data.session) throw new Error('La session d’invitation n’a pas pu être créée.');
 
-  const { error: acceptanceError } = await client.rpc('accept_my_pending_invitations');
-  if (acceptanceError) throw acceptanceError;
+  const { data: acceptedCount, error: acceptanceError } = await client.rpc('accept_my_pending_invitations');
+  if (acceptanceError) {
+    await client.auth.signOut().catch(() => undefined);
+    throw acceptanceError;
+  }
+  if (typeof acceptedCount !== 'number' || acceptedCount < 1) {
+    await client.auth.signOut().catch(() => undefined);
+    throw new Error('Cette invitation a expiré, a déjà été utilisée ou n’est plus valide. Demandez une nouvelle invitation.');
+  }
   return sessionResult.data.session;
 }
 
