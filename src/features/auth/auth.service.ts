@@ -1,0 +1,69 @@
+import type { Session } from '@supabase/supabase-js';
+
+import { requireSupabase } from '@/lib/supabase/client';
+import type { AppRole, CurrentMember } from '@/types/domain';
+
+interface MemberRecord {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role_id: string;
+  roles: { name: AppRole } | { name: AppRole }[];
+  profiles: { display_name: string; email: string | null } | { display_name: string; email: string | null }[];
+}
+
+function singleRelation<T>(value: T | T[]): T {
+  return Array.isArray(value) ? value[0]! : value;
+}
+
+export async function signInWithPassword(email: string, password: string) {
+  const { error } = await requireSupabase().auth.signInWithPassword({ email: email.trim(), password });
+  if (error) throw error;
+}
+
+export async function signOut() {
+  const { error } = await requireSupabase().auth.signOut();
+  if (error) throw error;
+}
+
+export async function loadCurrentMember(session: Session): Promise<CurrentMember | null> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('organization_members')
+    .select('id, organization_id, user_id, role_id, roles!inner(name), profiles!inner(display_name, email)')
+    .eq('user_id', session.user.id)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  const record = data as unknown as MemberRecord;
+  const role = singleRelation(record.roles);
+  const profile = singleRelation(record.profiles);
+  const { data: permissionRows, error: permissionsError } = await client
+    .from('role_permissions')
+    .select('permissions!inner(code)')
+    .eq('role_id', record.role_id);
+
+  if (permissionsError) throw permissionsError;
+
+  const permissions = (permissionRows as unknown as { permissions: { code: string } | { code: string }[] }[]).map(
+    (row) => singleRelation(row.permissions).code
+  );
+
+  return {
+    id: record.id,
+    organizationId: record.organization_id,
+    userId: record.user_id,
+    displayName: profile.display_name,
+    email: profile.email,
+    role: role.name,
+    permissions
+  };
+}
+
+export async function bootstrapFirstRoot(): Promise<void> {
+  const { error } = await requireSupabase().rpc('bootstrap_first_root');
+  if (error) throw error;
+}
