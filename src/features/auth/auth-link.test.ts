@@ -11,6 +11,18 @@ describe('parseAuthLink', () => {
     });
   });
 
+  it('extracts an implicit Supabase session from the Web activation route', () => {
+    expect(
+      parseAuthLink(
+        'https://your-food-gilt.vercel.app/auth/activate#access_token=web-access&refresh_token=web-refresh&type=invite'
+      )
+    ).toEqual({
+      kind: 'session',
+      accessToken: 'web-access',
+      refreshToken: 'web-refresh'
+    });
+  });
+
   it('supports a PKCE authorization code', () => {
     expect(parseAuthLink('yourfoodadmin://auth/activate?code=authorization-code')).toEqual({
       kind: 'code',

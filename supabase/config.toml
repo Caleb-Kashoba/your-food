@@ -21,8 +21,8 @@ port = 54323
 
 [auth]
 enabled = true
-site_url = "yourfoodadmin://"
-additional_redirect_urls = ["yourfoodadmin://**"]
+site_url = "https://your-food-gilt.vercel.app"
+additional_redirect_urls = ["https://your-food-gilt.vercel.app/auth/activate", "yourfoodadmin://auth/activate"]
 enable_signup = false
 
 [realtime]

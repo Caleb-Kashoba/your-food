@@ -56,7 +56,13 @@ Dans **Authentication > Providers > Email** :
 - conserver l'authentification par e-mail ;
 - désactiver l'inscription publique (`Allow new users to sign up`) ;
 - configurer le modèle d'e-mail d'invitation et l'expéditeur ;
-- ajouter `yourfoodadmin://sign-in` aux URL de redirection autorisées.
+- conserver `https://your-food-gilt.vercel.app` comme **Site URL** ;
+- autoriser exactement `https://your-food-gilt.vercel.app/auth/activate` pour les invitations e-mail Web ;
+- autoriser `yourfoodadmin://auth/activate` pour les invitations ouvertes dans l'application mobile ;
+- vérifier que le modèle d'invitation utilise `{{ .ConfirmationURL }}` afin que Supabase valide le jeton avant la redirection.
+
+La fonction `admin-users` lit `INVITE_WEB_REDIRECT_URL` côté serveur. Pour ce déploiement, sa valeur est
+`https://your-food-gilt.vercel.app/auth/activate`. Cette variable n'est jamais exposée dans le bundle client.
 
 La valeur `enable_signup = false` de `supabase/config.toml` protège l'environnement Supabase local ; le réglage du projet Cloud doit être fait séparément dans le tableau de bord.
 
@@ -93,4 +99,3 @@ Vérifier avec au moins deux comptes que :
 - chaque changement de rôle apparaît dans le journal d'audit ;
 - un compte sans permission ne peut pas contourner l'interface avec un appel direct à l'API ;
 - les alertes J-5, J-2 et J0 sont produites une seule fois par abonnement et par règle.
-

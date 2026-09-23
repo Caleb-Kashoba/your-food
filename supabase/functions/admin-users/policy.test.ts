@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { canInviteRole, normalizeCongolesePhone } from './policy';
+import {
+  MOBILE_INVITATION_REDIRECT_URL,
+  canInviteRole,
+  getInvitationRedirect,
+  normalizeCongolesePhone
+} from './policy';
 
 describe('admin-users invitation policy', () => {
   it('allows a root to invite an admin through the secured backend', () => {
@@ -23,4 +28,23 @@ describe('admin-users invitation policy', () => {
     'normalizes %s for WhatsApp',
     (value) => expect(normalizeCongolesePhone(value)).toBe('+243812345678')
   );
+
+  it('uses the production Web activation route for email invitations', () => {
+    expect(
+      getInvitationRedirect('email', 'https://your-food-gilt.vercel.app/auth/activate')
+    ).toBe('https://your-food-gilt.vercel.app/auth/activate');
+  });
+
+  it('keeps the application deep link for WhatsApp invitations', () => {
+    expect(getInvitationRedirect('whatsapp', undefined)).toBe(MOBILE_INVITATION_REDIRECT_URL);
+  });
+
+  it.each([
+    undefined,
+    'http://your-food-gilt.vercel.app/auth/activate',
+    'https://localhost/auth/activate',
+    'https://your-food-gilt.vercel.app/another-route'
+  ])('rejects an unsafe or incorrect Web invitation redirect: %s', (redirectUrl) => {
+    expect(() => getInvitationRedirect('email', redirectUrl)).toThrow();
+  });
 });

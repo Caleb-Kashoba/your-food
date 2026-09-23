@@ -1,6 +1,8 @@
 export type AppRole = 'root' | 'admin' | 'manager' | 'staff';
 export type InvitationChannel = 'email' | 'whatsapp';
 
+export const MOBILE_INVITATION_REDIRECT_URL = 'yourfoodadmin://auth/activate';
+
 const roleLevels: Record<AppRole, number> = {
   root: 100,
   admin: 80,
@@ -13,6 +15,30 @@ export function canInviteRole(callerRole: AppRole, requestedRole: AppRole, hasUs
   if (!hasUsersCreate) return false;
   if (requestedRole === 'root' || requestedRole === 'admin') return false;
   return roleLevels[requestedRole] < roleLevels[callerRole];
+}
+
+export function getInvitationRedirect(
+  channel: InvitationChannel,
+  webRedirectUrl: string | undefined
+): string {
+  if (channel === 'whatsapp') return MOBILE_INVITATION_REDIRECT_URL;
+  if (!webRedirectUrl) throw new Error('INVITE_WEB_REDIRECT_URL is not configured');
+
+  let parsed: URL;
+  try {
+    parsed = new URL(webRedirectUrl);
+  } catch {
+    throw new Error('INVITE_WEB_REDIRECT_URL is invalid');
+  }
+
+  const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  if (parsed.protocol !== 'https:' || isLocalhost || parsed.pathname !== '/auth/activate') {
+    throw new Error('INVITE_WEB_REDIRECT_URL must be an HTTPS /auth/activate URL');
+  }
+
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString();
 }
 
 export function normalizeCongolesePhone(value: string | null | undefined): string | null {

@@ -1,5 +1,5 @@
 import type { Session } from '@supabase/supabase-js';
-import { AppState, Linking } from 'react-native';
+import { AppState, Linking, Platform } from 'react-native';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -9,6 +9,7 @@ import {
   signInWithPassword,
   signOut
 } from '@/features/auth/auth.service';
+import { parseAuthLink } from '@/features/auth/auth-link';
 import { getErrorMessage } from '@/lib/errors';
 import { supabase } from '@/lib/supabase/client';
 import type { CurrentMember } from '@/types/domain';
@@ -27,6 +28,18 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+function getCurrentWebUrl(): string | null {
+  if (Platform.OS !== 'web' || typeof globalThis.location?.href !== 'string') return null;
+  return globalThis.location.href;
+}
+
+function clearWebAuthParameters(url: string): void {
+  if (Platform.OS !== 'web' || parseAuthLink(url).kind === 'none') return;
+  if (typeof globalThis.history?.replaceState !== 'function' || !globalThis.location) return;
+
+  globalThis.history.replaceState(globalThis.history.state, '', globalThis.location.pathname);
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -66,14 +79,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (caught) {
         if (mounted) setError(getErrorMessage(caught));
       } finally {
+        clearWebAuthParameters(url);
         if (mounted) setLoading(false);
       }
     };
 
     void (async () => {
       try {
-        const initialUrl = await Linking.getInitialURL();
-        const linkedSession = initialUrl ? await createSessionFromAuthLink(initialUrl) : null;
+        const initialUrl = getCurrentWebUrl() ?? await Linking.getInitialURL();
+        let linkedSession: Session | null = null;
+        if (initialUrl) {
+          try {
+            linkedSession = await createSessionFromAuthLink(initialUrl);
+          } finally {
+            clearWebAuthParameters(initialUrl);
+          }
+        }
         if (linkedSession) {
           await applySession(linkedSession);
           return;

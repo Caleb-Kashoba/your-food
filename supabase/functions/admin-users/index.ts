@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.116.0';
 
 import {
   canInviteRole,
+  getInvitationRedirect,
   normalizeCongolesePhone,
   type AppRole,
   type InvitationChannel
@@ -12,7 +13,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
 };
 
-const redirectTo = 'yourfoodadmin://auth/activate';
 const allowedRoles: AppRole[] = ['root', 'admin', 'manager', 'staff'];
 const allowedChannels: InvitationChannel[] = ['email', 'whatsapp'];
 
@@ -169,6 +169,7 @@ Deno.serve(async (request) => {
       requested_role: body.role,
       invitation_channel: body.channel
     };
+    const redirectTo = getInvitationRedirect(body.channel, Deno.env.get('INVITE_WEB_REDIRECT_URL'));
     let inviteLink: string | undefined;
     let invitedUserId: string;
 
