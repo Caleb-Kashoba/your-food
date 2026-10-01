@@ -18,7 +18,7 @@ comme avant. La publication d'un menu est l'interrupteur qui active la commande 
 ## 2. Base de données (dans l'ordre)
 ```bash
 supabase link --project-ref <REF_PRODUCTION>
-supabase db push        # applique 202610010001 → 202610010004
+supabase db push        # applique 202610010001 → 202610010005
 ```
 Contrôles juste après :
 ```sql
@@ -28,11 +28,12 @@ select count(*) from public.customers where phone is null;  -- 0 (rien n'a chang
 ```
 
 ## 3. Données à régler à la main (une seule fois)
-La formule 1 ne comprend la viande que le lundi et le vendredi. Sans cette ligne, **toutes** les formules auraient de la viande tous les jours :
+La formule à 25 000 ne comprend la viande que **le lundi et le vendredi** par défaut (deux jours au maximum, modifiables ensuite depuis *Plus → Formules → Modifier*). Sans cette ligne, **toutes** les formules auraient de la viande tous les jours :
 ```sql
 -- Vérifier d'abord les noms exacts : select id, name, price from public.plans;
 update public.plans set meat_weekdays = '{1,5}' where name = '<nom exact de la formule à 25 000>';
 ```
+La formule à 35 000 garde la viande tous les jours (aucune ligne à régler : valeur `null`).
 Vérifier aussi que chaque formule n'a des jours de service que du lundi au vendredi : `select p.name, array_agg(d.weekday order by d.weekday) from plans p join plan_service_days d on d.plan_id = p.id group by p.name;`
 
 ## 4. Fonction d'accès des clients

@@ -66,6 +66,8 @@ export interface Plan {
   durationUnit: 'day' | 'week' | 'month';
   serviceDaysCount: number;
   serviceWeekdays: number[];
+  /** Jours de viande (1 = lundi) ; null = viande tous les jours de service */
+  meatWeekdays: number[] | null;
   isActive: boolean;
 }
 

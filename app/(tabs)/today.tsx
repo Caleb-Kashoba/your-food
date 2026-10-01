@@ -77,7 +77,7 @@ export default function TodayScreen() {
         <Text style={styles.total}>{deliveries.data?.length ?? 0} prévues</Text>
         <Text style={styles.progress}>{deliveredCount} livrées · {Math.max((deliveries.data?.length ?? 0) - deliveredCount, 0)} restantes</Text>
       </View>
-      <ScrollView horizontal contentContainerStyle={styles.filters} showsHorizontalScrollIndicator={false}>
+      <ScrollView horizontal contentContainerStyle={styles.filters} showsHorizontalScrollIndicator={false} style={styles.row}>
         {statusFilters.map((filter) => (
           <Pressable key={filter.value} onPress={() => setStatus(filter.value)} style={[styles.filter, status === filter.value && styles.filterActive]}>
             <Text style={[styles.filterText, status === filter.value && styles.filterTextActive]}>{filter.label}</Text>
@@ -85,7 +85,7 @@ export default function TodayScreen() {
         ))}
       </ScrollView>
       {zones.length ? (
-        <ScrollView horizontal contentContainerStyle={styles.zoneFilters} showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal contentContainerStyle={styles.zoneFilters} showsHorizontalScrollIndicator={false} style={styles.row}>
           <Pressable onPress={() => setZone('all')}><Text style={[styles.zoneText, zone === 'all' && styles.zoneTextActive]}>Toutes zones</Text></Pressable>
           {zones.map((item) => (
             <Pressable key={item} onPress={() => setZone(item)}><Text style={[styles.zoneText, zone === item && styles.zoneTextActive]}>{item}</Text></Pressable>
@@ -128,6 +128,7 @@ export default function TodayScreen() {
 }
 
 const styles = StyleSheet.create({
+  row: { flexGrow: 0, flexShrink: 0 },
   page: { flex: 1, backgroundColor: colors.background },
   summary: { backgroundColor: colors.primaryDark, borderRadius: radii.lg, margin: spacing.md, marginBottom: spacing.sm, padding: spacing.lg, gap: spacing.xs, ...shadows.soft },
   viewSwitch: { flexDirection: 'row', alignSelf: 'flex-start', backgroundColor: colors.surface, borderRadius: radii.round, padding: spacing.xs },
@@ -135,7 +136,7 @@ const styles = StyleSheet.create({
   viewButtonActive: { backgroundColor: colors.primary },
   viewText: { color: colors.muted, fontWeight: '700' },
   viewTextActive: { color: colors.surface },
-  date: { color: colors.sand, fontSize: 13, textTransform: 'capitalize' },
+  date: { color: colors.sand, fontSize: 13 },
   total: { color: colors.white, fontSize: 30, fontWeight: '900' },
   progress: { color: colors.sand, fontSize: 14, fontWeight: '600' },
   filters: { gap: spacing.sm, paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
@@ -152,7 +153,7 @@ const styles = StyleSheet.create({
   deliveryTitle: { flex: 1 },
   name: { color: colors.primaryDark, fontSize: 16, fontWeight: '800' },
   meta: { color: colors.muted, fontSize: 13, lineHeight: 18 },
-  deliveryDate: { color: colors.primaryDark, fontSize: 13, fontWeight: '800', textTransform: 'capitalize' },
+  deliveryDate: { color: colors.primaryDark, fontSize: 13, fontWeight: '800' },
   deliverButton: { alignItems: 'center', backgroundColor: colors.accentSoft, borderRadius: radii.md, marginTop: spacing.sm, padding: spacing.md },
   deliverButtonText: { color: colors.accent, fontWeight: '900' }
 });

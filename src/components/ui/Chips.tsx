@@ -12,7 +12,7 @@ interface ChipsProps<T extends string> {
 /** Rangée de pastilles à choix unique (filtres, catégories) */
 export function Chips<T extends string>({ options, value, onChange, label }: ChipsProps<T>) {
   return (
-    <ScrollView accessibilityLabel={label} contentContainerStyle={styles.row} horizontal showsHorizontalScrollIndicator={false}>
+    <ScrollView accessibilityLabel={label} contentContainerStyle={styles.row} horizontal showsHorizontalScrollIndicator={false} style={styles.scroll}>
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -32,6 +32,7 @@ export function Chips<T extends string>({ options, value, onChange, label }: Chi
 }
 
 const styles = StyleSheet.create({
+  scroll: { flexGrow: 0, flexShrink: 0 },
   row: { flexDirection: 'row', gap: spacing.sm, paddingVertical: 2 },
   chip: { backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.round, paddingHorizontal: spacing.md, paddingVertical: 9 },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },

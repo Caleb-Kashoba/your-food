@@ -35,7 +35,7 @@ export function Screen({ children, scroll = true, contentContainerStyle, style }
 
 function BrandBackdrop() {
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.backdrop]}>
       <View style={styles.orangeGlow} />
       <View style={styles.greenGlow} />
     </View>
@@ -43,7 +43,8 @@ function BrandBackdrop() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
+  backdrop: { overflow: 'hidden' },
+  safe: { flex: 1, backgroundColor: colors.background, overflow: 'hidden' },
   content: { flex: 1, padding: spacing.md },
   scrollContent: { flexGrow: 1, padding: spacing.md, gap: spacing.md },
   orangeGlow: {

@@ -6,6 +6,7 @@ import { EmptyView, ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { listPlans } from '@/features/plans/plans.service';
 import { getErrorMessage } from '@/lib/errors';
+import { describeMeatDays } from '@/features/plans/meat-days';
 import { formatMoney } from '@/lib/money';
 import { colors, radii, spacing } from '@/theme/colors';
 
@@ -36,7 +37,7 @@ export default function PlansScreen() {
               <Text style={styles.price}>{formatMoney(item.price, item.currency)}</Text>
             </View>
             <Text style={styles.meta}>{item.durationValue} {item.durationUnit} · {item.serviceDaysCount} jours de service</Text>
-            <Text style={styles.days}>{item.serviceWeekdays.map((day) => dayLabels[day - 1]).join(' · ')}</Text>
+            <Text style={styles.days}>{item.serviceWeekdays.map((day) => dayLabels[day - 1]).join(' · ')} — {describeMeatDays(item.meatWeekdays)}</Text>
             {!item.isActive ? <Text style={styles.inactiveText}>Formule inactive</Text> : null}
           </Pressable>
         )}

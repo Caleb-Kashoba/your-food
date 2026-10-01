@@ -7,14 +7,16 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
 import { Screen } from '@/components/ui/Screen';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
-import { getPlan, updatePlan } from '@/features/plans/plans.service';
+import { MeatDaysField } from '@/features/plans/MeatDaysField';
+import { getPlan, setPlanMeatDays, updatePlan } from '@/features/plans/plans.service';
 import { getErrorMessage } from '@/lib/errors';
 import { colors, radii, spacing } from '@/theme/colors';
 import type { Plan } from '@/types/domain';
 
+// Le service est toujours du lundi au vendredi
 const days = [
   { value: 1, label: 'Lun' }, { value: 2, label: 'Mar' }, { value: 3, label: 'Mer' },
-  { value: 4, label: 'Jeu' }, { value: 5, label: 'Ven' }, { value: 6, label: 'Sam' }, { value: 7, label: 'Dim' }
+  { value: 4, label: 'Jeu' }, { value: 5, label: 'Ven' }
 ];
 
 export default function EditPlanScreen() {
@@ -35,8 +37,9 @@ function EditPlanForm({ plan }: { plan: Plan }) {
   const [price, setPrice] = useState(String(plan.price));
   const [durationValue, setDurationValue] = useState(String(plan.durationValue));
   const [durationUnit, setDurationUnit] = useState<'day' | 'week' | 'month'>(plan.durationUnit);
-  const [weekdays, setWeekdays] = useState<number[]>(plan.serviceWeekdays);
+  const [weekdays, setWeekdays] = useState<number[]>(plan.serviceWeekdays.filter((day) => day <= 5));
   const [isActive, setIsActive] = useState(plan.isActive);
+  const [meatDays, setMeatDays] = useState<number[] | null>(plan.meatWeekdays);
   const [saving, setSaving] = useState(false);
 
   const toggleDay = (day: number) => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort());
@@ -58,7 +61,9 @@ function EditPlanForm({ plan }: { plan: Plan }) {
         durationUnit,
         weekdays
       }, isActive);
+      await setPlanMeatDays(plan.id, meatDays);
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['subscriptions'] }),
         queryClient.invalidateQueries({ queryKey: ['plans'] }),
         queryClient.invalidateQueries({ queryKey: ['plan', plan.id] })
       ]);
@@ -91,6 +96,7 @@ function EditPlanForm({ plan }: { plan: Plan }) {
           </Pressable>
         ))}
       </View>
+      <MeatDaysField onChange={setMeatDays} value={meatDays} />
       <Pressable onPress={() => setIsActive((value) => !value)} style={[styles.status, isActive && styles.statusActive]}>
         <Text style={[styles.unitText, isActive && styles.activeText]}>{isActive ? 'Formule active' : 'Formule inactive'}</Text>
       </Pressable>

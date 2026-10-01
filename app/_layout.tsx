@@ -73,7 +73,8 @@ function AppNavigator() {
   if (loading) return <LoadingView label="Ouverture de Your Food…" />;
 
   return (
-    <>
+    <View style={styles.outer}>
+    <View style={styles.shell}>
       <ConnectivityBanner />
       <StatusBar style="dark" />
       <Stack
@@ -121,11 +122,15 @@ function AppNavigator() {
         <Stack.Screen name="system/diagnostics" options={{ title: 'Diagnostic système' }} />
         <Stack.Screen name="coming-soon" options={{ title: 'Bientôt disponible' }} />
       </Stack>
-    </>
+    </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Sur ordinateur, le contenu reste dans une colonne lisible, centrée
+  outer: { flex: 1, backgroundColor: colors.background },
+  shell: { flex: 1, width: '100%', maxWidth: 760, alignSelf: 'center' },
   configuration: {
     flex: 1,
     alignItems: 'center',

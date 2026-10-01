@@ -7,13 +7,16 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
 import { Screen } from '@/components/ui/Screen';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { createPlan } from '@/features/plans/plans.service';
+import { MeatDaysField } from '@/features/plans/MeatDaysField';
+import { DEFAULT_MEAT_DAYS } from '@/features/plans/meat-days';
+import { createPlan, setPlanMeatDays } from '@/features/plans/plans.service';
 import { getErrorMessage } from '@/lib/errors';
 import { colors, radii, spacing } from '@/theme/colors';
 
+// Le service est toujours du lundi au vendredi
 const days = [
   { value: 1, label: 'Lun' }, { value: 2, label: 'Mar' }, { value: 3, label: 'Mer' },
-  { value: 4, label: 'Jeu' }, { value: 5, label: 'Ven' }, { value: 6, label: 'Sam' }, { value: 7, label: 'Dim' }
+  { value: 4, label: 'Jeu' }, { value: 5, label: 'Ven' }
 ];
 
 export default function NewPlanScreen() {
@@ -25,7 +28,8 @@ export default function NewPlanScreen() {
   const [price, setPrice] = useState('');
   const [durationValue, setDurationValue] = useState('1');
   const [durationUnit, setDurationUnit] = useState<'week' | 'month'>('week');
-  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5, 6]);
+  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]);
+  const [meatDays, setMeatDays] = useState<number[] | null>([...DEFAULT_MEAT_DAYS]);
   const [saving, setSaving] = useState(false);
 
   const toggleDay = (day: number) => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort());
@@ -38,7 +42,7 @@ export default function NewPlanScreen() {
     }
     try {
       setSaving(true);
-      await createPlan(member.organizationId, {
+      const planId = await createPlan(member.organizationId, {
         name: name.trim(),
         description: description.trim() || null,
         price: numericPrice,
@@ -47,6 +51,7 @@ export default function NewPlanScreen() {
         durationUnit,
         weekdays
       });
+      await setPlanMeatDays(planId, meatDays);
       await queryClient.invalidateQueries({ queryKey: ['plans'] });
       router.back();
     } catch (error) {
@@ -77,6 +82,7 @@ export default function NewPlanScreen() {
           </Pressable>
         ))}
       </View>
+      <MeatDaysField onChange={setMeatDays} value={meatDays} />
       <AppButton label="Créer la formule" loading={saving} onPress={() => void save()} />
     </Screen>
   );
