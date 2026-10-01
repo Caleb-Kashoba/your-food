@@ -1,41 +1,79 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { StatusBadge } from '@/components/ui/StatusBadge';
-import { EmptyView, ErrorView, LoadingView } from '@/components/ui/StateViews';
+import { Chips } from '@/components/ui/Chips';
+import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { listDeliveries, listDeliveriesRange, updateDeliveryStatus } from '@/features/deliveries/deliveries.service';
+import {
+  addressText,
+  countByStage,
+  daysOf,
+  mealParts,
+  nextStatus,
+  rowsOfDay,
+  stageOf,
+  totalsToPrepare,
+  type BoardRow,
+  type Stage
+} from '@/features/deliveries/board';
+import { listBoard, updateDeliveryStatus } from '@/features/deliveries/deliveries.service';
 import { useTableRealtime } from '@/hooks/use-table-realtime';
-import { addLocalDays, formatLocalDate, localDateKey } from '@/lib/dates';
+import { addLocalDays, capitalizeFirst, formatDayChip, formatDayMonth, localDateKey } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { colors, radii, shadows, spacing } from '@/theme/colors';
 import type { DeliveryStatus } from '@/types/domain';
 
-const realtimeKeys = [['deliveries'], ['dashboard']] as const;
-const statusFilters: { label: string; value: DeliveryStatus | 'all' }[] = [
-  { label: 'Toutes', value: 'all' },
-  { label: 'Restantes', value: 'scheduled' },
-  { label: 'Prêtes', value: 'ready' },
-  { label: 'Livrées', value: 'delivered' }
+/** « 1 prêt », « 3 prêts » */
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count > 1 ? 's' : ''}`;
+}
+
+type Mode = 'preparation' | 'livraison';
+type PrepFilter = 'a_faire' | 'pretes' | 'tous';
+type DeliveryFilter = 'a_livrer' | 'livrees' | 'pas_pretes';
+
+const realtimeKeys = [['deliveries'], ['dashboard'], ['orders']] as const;
+
+const PREP_FILTERS: { value: PrepFilter; label: string }[] = [
+  { value: 'a_faire', label: 'À préparer' },
+  { value: 'pretes', label: 'Prêts' },
+  { value: 'tous', label: 'Tous' }
 ];
 
+const STAGE_LABEL: Record<Stage, { text: string; bg: string }> = {
+  attente_choix: { text: 'pas encore choisi', bg: colors.warningSoft },
+  a_preparer: { text: 'à préparer', bg: colors.primarySoft },
+  prete: { text: 'prêt', bg: colors.infoSoft },
+  livree: { text: 'livré', bg: colors.successSoft },
+  annulee: { text: 'annulé', bg: colors.dangerSoft }
+};
+
+/**
+ * « Aujourd'hui » : deux parties pour la journée choisie.
+ * - Préparation : le repas choisi par chaque client, à remplir bol par bol, avec le total à préparer ;
+ * - Livraison : les bols prêts, à livrer, avec l'adresse du client.
+ * La vue se règle aussi sur les jours suivants, pour préparer à l'avance.
+ */
 export default function TodayScreen() {
   const { member, hasPermission } = useAuth();
   const queryClient = useQueryClient();
-  const [status, setStatus] = useState<DeliveryStatus | 'all'>('all');
-  const [zone, setZone] = useState('all');
-  const [view, setView] = useState<'today' | 'week'>('today');
-  const date = localDateKey();
-  const weekEnd = addLocalDays(date, 6);
-  const deliveries = useQuery({
-    queryKey: ['deliveries', view, date, weekEnd],
-    queryFn: () => view === 'today' ? listDeliveries(date) : listDeliveriesRange(date, weekEnd)
+  const today = localDateKey();
+  const [day, setDay] = useState(today);
+  const [mode, setMode] = useState<Mode>('preparation');
+  const [prepFilter, setPrepFilter] = useState<PrepFilter>('a_faire');
+  const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('a_livrer');
+
+  const board = useQuery({
+    queryKey: ['deliveries', 'board', today],
+    queryFn: () => listBoard(today, addLocalDays(today, 6)),
+    refetchInterval: 30_000
   });
   useTableRealtime('deliveries', member?.organizationId, realtimeKeys);
 
-  const mutation = useMutation({
-    mutationFn: ({ id, nextStatus }: { id: string; nextStatus: DeliveryStatus }) => updateDeliveryStatus(id, nextStatus),
+  const change = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: DeliveryStatus }) => updateDeliveryStatus(id, status),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['deliveries'] }),
@@ -45,115 +83,252 @@ export default function TodayScreen() {
     onError: (error) => Alert.alert('Mise à jour impossible', getErrorMessage(error))
   });
 
-  const zones = useMemo(
-    () => Array.from(new Set(deliveries.data?.map((item) => item.zoneName).filter((value): value is string => Boolean(value)) ?? [])),
-    [deliveries.data]
-  );
-  const filtered = useMemo(
-    () =>
-      deliveries.data?.filter((item) => {
-        const statusMatches = status === 'all' || (status === 'scheduled' ? item.status !== 'delivered' && item.status !== 'cancelled' : item.status === status);
-        return statusMatches && (zone === 'all' || item.zoneName === zone);
-      }) ?? [],
-    [deliveries.data, status, zone]
-  );
-  const deliveredCount = deliveries.data?.filter((item) => item.status === 'delivered').length ?? 0;
+  if (board.isLoading) return <LoadingView label="Chargement des livraisons…" />;
+  if (board.error || !board.data) return <ErrorView message={getErrorMessage(board.error)} onRetry={() => void board.refetch()} />;
 
-  if (deliveries.isLoading) return <LoadingView label="Chargement des livraisons…" />;
-  if (deliveries.error) return <ErrorView message={getErrorMessage(deliveries.error)} onRetry={() => void deliveries.refetch()} />;
+  const all = board.data;
+  const days = daysOf(all);
+  // Si aujourd'hui n'a aucune livraison, on commence au premier jour qui en a
+  const selected = days.includes(day) ? day : days[0] ?? today;
+  const rows = rowsOfDay(all, selected);
+  const counts = countByStage(rows);
+  const canAct = hasPermission('deliveries.update');
+  const total = rows.length - counts.annulee;
+
+  const dayOptions = days.map((value) => ({
+    value,
+    label: `${value === today ? 'Aujourd’hui' : formatDayChip(value)} · ${rowsOfDay(all, value).filter((row) => stageOf(row) !== 'annulee').length}`
+  }));
+
+  const act = (row: BoardRow) => {
+    const next = nextStatus(row, mode);
+    if (next) change.mutate({ id: row.delivery_id, status: next.status });
+  };
 
   return (
-    <View style={styles.page}>
-      <View style={styles.summary}>
-        <View style={styles.viewSwitch}>
-          <Pressable onPress={() => setView('today')} style={[styles.viewButton, view === 'today' && styles.viewButtonActive]}>
-            <Text style={[styles.viewText, view === 'today' && styles.viewTextActive]}>Aujourd’hui</Text>
-          </Pressable>
-          <Pressable onPress={() => setView('week')} style={[styles.viewButton, view === 'week' && styles.viewButtonActive]}>
-            <Text style={[styles.viewText, view === 'week' && styles.viewTextActive]}>7 jours</Text>
-          </Pressable>
-        </View>
-        <Text style={styles.date}>{view === 'today' ? formatLocalDate(date) : `${formatLocalDate(date)} → ${formatLocalDate(weekEnd)}`}</Text>
-        <Text style={styles.total}>{deliveries.data?.length ?? 0} prévues</Text>
-        <Text style={styles.progress}>{deliveredCount} livrées · {Math.max((deliveries.data?.length ?? 0) - deliveredCount, 0)} restantes</Text>
-      </View>
-      <ScrollView horizontal contentContainerStyle={styles.filters} showsHorizontalScrollIndicator={false} style={styles.row}>
-        {statusFilters.map((filter) => (
-          <Pressable key={filter.value} onPress={() => setStatus(filter.value)} style={[styles.filter, status === filter.value && styles.filterActive]}>
-            <Text style={[styles.filterText, status === filter.value && styles.filterTextActive]}>{filter.label}</Text>
+    <ScrollView
+      contentContainerStyle={styles.content}
+      style={styles.page}
+      refreshControl={<RefreshControl onRefresh={() => void board.refetch()} refreshing={board.isRefetching} tintColor={colors.primary} />}
+    >
+      <Chips onChange={setDay} options={dayOptions} value={selected} />
+
+      <View style={styles.switch}>
+        {([['preparation', 'Préparation', 'restaurant-outline'], ['livraison', 'Livraison', 'bicycle-outline']] as const).map(([value, label, icon]) => (
+          <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === value }} key={value} onPress={() => setMode(value)} style={[styles.switchButton, mode === value && styles.switchActive]}>
+            <Ionicons color={mode === value ? colors.white : colors.muted} name={icon} size={18} />
+            <Text style={[styles.switchText, mode === value && styles.switchTextActive]}>{label}</Text>
           </Pressable>
         ))}
-      </ScrollView>
-      {zones.length ? (
-        <ScrollView horizontal contentContainerStyle={styles.zoneFilters} showsHorizontalScrollIndicator={false} style={styles.row}>
-          <Pressable onPress={() => setZone('all')}><Text style={[styles.zoneText, zone === 'all' && styles.zoneTextActive]}>Toutes zones</Text></Pressable>
-          {zones.map((item) => (
-            <Pressable key={item} onPress={() => setZone(item)}><Text style={[styles.zoneText, zone === item && styles.zoneTextActive]}>{item}</Text></Pressable>
-          ))}
-        </ScrollView>
-      ) : null}
-      <FlatList
-        contentContainerStyle={styles.list}
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        ListEmptyComponent={<EmptyView message="Aucune livraison ne correspond aux filtres." title="Aucune livraison" />}
-        onRefresh={() => void deliveries.refetch()}
-        refreshing={deliveries.isRefetching}
-        renderItem={({ item }) => (
-          <View style={styles.delivery}>
-            <View style={styles.deliveryHeader}>
-              <View style={styles.deliveryTitle}>
-                <Text style={styles.name}>{item.customerName}</Text>
-                <Text style={styles.meta}>{item.planName}</Text>
-              </View>
-              <StatusBadge status={item.status} />
-            </View>
-            <Text style={styles.meta}>{[item.zoneName, item.residence, item.building, item.room].filter(Boolean).join(' · ')}</Text>
-            {view === 'week' ? <Text style={styles.deliveryDate}>{formatLocalDate(item.deliveryDate)}</Text> : null}
-            <Text style={styles.meta}>{item.phone ?? 'Pas de numéro'}</Text>
-            {item.status !== 'delivered' && item.status !== 'cancelled' && hasPermission('deliveries.update') ? (
-              <Pressable
-                disabled={mutation.isPending}
-                onPress={() => mutation.mutate({ id: item.id, nextStatus: 'delivered' })}
-                style={styles.deliverButton}
-              >
-                <Text style={styles.deliverButtonText}>Marquer comme livrée</Text>
-              </Pressable>
-            ) : null}
-          </View>
+      </View>
+
+      <View style={styles.summary}>
+        <Text style={styles.summaryDate}>{capitalizeFirst(formatDayMonth(selected))}</Text>
+        {mode === 'preparation' ? (
+          <>
+            <Text style={styles.summaryTotal}>{counts.a_preparer + counts.prete + counts.livree} à préparer</Text>
+            <Text style={styles.summaryMeta}>
+              {plural(counts.prete + counts.livree, 'prêt')} · {plural(counts.a_preparer, 'restant')}
+              {counts.attente_choix > 0 ? ` · ${plural(counts.attente_choix, 'pas encore choisi')}` : ''}
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.summaryTotal}>{counts.prete} à livrer</Text>
+            <Text style={styles.summaryMeta}>{plural(counts.livree, 'livré')} · {plural(counts.a_preparer + counts.attente_choix, 'pas encore prêt')}</Text>
+          </>
         )}
-      />
+        {total === 0 ? <Text style={styles.summaryMeta}>Aucune livraison ce jour.</Text> : null}
+      </View>
+
+      {mode === 'preparation' ? (
+        <PreparationPart
+          canAct={canAct}
+          filter={prepFilter}
+          onAct={act}
+          onFilter={setPrepFilter}
+          pending={change.isPending}
+          rows={rows}
+        />
+      ) : (
+        <DeliveryPart
+          canAct={canAct}
+          filter={deliveryFilter}
+          onAct={act}
+          onFilter={setDeliveryFilter}
+          pending={change.isPending}
+          rows={rows}
+        />
+      )}
+    </ScrollView>
+  );
+}
+
+function PreparationPart({ rows, filter, onFilter, onAct, canAct, pending }: {
+  rows: BoardRow[]; filter: PrepFilter; onFilter: (value: PrepFilter) => void; onAct: (row: BoardRow) => void; canAct: boolean; pending: boolean;
+}) {
+  const totals = totalsToPrepare(rows);
+  const waiting = rows.filter((row) => stageOf(row) === 'attente_choix');
+  const visible = rows.filter((row) => {
+    const stage = stageOf(row);
+    if (filter === 'a_faire') return stage === 'a_preparer' || stage === 'attente_choix';
+    if (filter === 'pretes') return stage === 'prete' || stage === 'livree';
+    return true;
+  });
+
+  return (
+    <>
+      {totals.length > 0 ? (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Total à préparer</Text>
+          {totals.map((entry) => (
+            <View key={`${entry.category}-${entry.name}`} style={styles.totalRow}>
+              <Text style={styles.totalCount}>{entry.count} ×</Text>
+              <Text style={styles.totalName}>{entry.name}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {waiting.length > 0 ? (
+        <View style={styles.notice}>
+          <Text style={styles.noticeText}>
+            {waiting.length} client{waiting.length > 1 ? 's n’ont' : ' n’a'} pas encore choisi : le repas le plus demandé leur sera attribué à 20h00.
+          </Text>
+        </View>
+      ) : null}
+
+      <Chips onChange={onFilter} options={PREP_FILTERS} value={filter} />
+      {visible.length === 0 ? <Text style={styles.empty}>Rien à afficher avec ce filtre.</Text> : null}
+      {visible.map((row) => (
+        <MealCard canAct={canAct} key={row.delivery_id} mode="preparation" onAct={() => onAct(row)} pending={pending} row={row} />
+      ))}
+    </>
+  );
+}
+
+function DeliveryPart({ rows, filter, onFilter, onAct, canAct, pending }: {
+  rows: BoardRow[]; filter: DeliveryFilter; onFilter: (value: DeliveryFilter) => void; onAct: (row: BoardRow) => void; canAct: boolean; pending: boolean;
+}) {
+  const counts = countByStage(rows);
+  const options: { value: DeliveryFilter; label: string }[] = [
+    { value: 'a_livrer', label: `À livrer · ${counts.prete}` },
+    { value: 'livrees', label: `Livrés · ${counts.livree}` },
+    { value: 'pas_pretes', label: `Pas encore prêts · ${counts.a_preparer + counts.attente_choix}` }
+  ];
+  const visible = rows.filter((row) => {
+    const stage = stageOf(row);
+    if (filter === 'a_livrer') return stage === 'prete';
+    if (filter === 'livrees') return stage === 'livree';
+    return stage === 'a_preparer' || stage === 'attente_choix';
+  });
+
+  return (
+    <>
+      <Chips onChange={onFilter} options={options} value={filter} />
+      {visible.length === 0 ? (
+        <Text style={styles.empty}>
+          {filter === 'a_livrer' ? 'Aucun repas prêt à livrer pour le moment : prépare les bols dans l’onglet Préparation.' : 'Rien à afficher avec ce filtre.'}
+        </Text>
+      ) : null}
+      {visible.map((row) => (
+        <MealCard canAct={canAct} key={row.delivery_id} mode="livraison" onAct={() => onAct(row)} pending={pending} row={row} />
+      ))}
+    </>
+  );
+}
+
+function MealCard({ row, mode, canAct, pending, onAct }: { row: BoardRow; mode: Mode; canAct: boolean; pending: boolean; onAct: () => void }) {
+  const stage = stageOf(row);
+  const label = STAGE_LABEL[stage];
+  const next = canAct ? nextStatus(row, mode) : null;
+  const parts = mealParts(row);
+  const address = addressText(row);
+  const undo = next !== null && (next.status === 'scheduled' || (mode === 'livraison' && stage === 'livree'));
+
+  return (
+    <View style={[styles.meal, stage === 'annulee' && styles.mealDim]}>
+      <View style={styles.mealHeader}>
+        <View style={styles.mealTitle}>
+          <Text style={styles.name}>{row.customer_name}</Text>
+          <Text style={styles.meta}>{row.plan_name}</Text>
+        </View>
+        <View style={[styles.pill, { backgroundColor: label.bg }]}><Text style={styles.pillText}>{label.text}</Text></View>
+      </View>
+
+      {parts.length > 0 ? (
+        <View style={styles.bowl}>
+          {parts.map((part, index) => (
+            <Text key={`${part}-${index}`} style={[styles.bowlLine, index === 0 && styles.bowlMain]}>{part}</Text>
+          ))}
+          {row.state === 'defaut' ? <Text style={styles.defaultTag}>choisi par défaut</Text> : null}
+        </View>
+      ) : (
+        <Text style={styles.meta}>
+          {stage === 'annulee' ? 'Repas annulé par le client.' : 'Le client n’a pas encore choisi son repas.'}
+        </Text>
+      )}
+
+      {mode === 'livraison' ? (
+        <View style={styles.delivery}>
+          {address ? <Text style={styles.meta}>{address}</Text> : <Text style={styles.meta}>Adresse non renseignée</Text>}
+          <Text style={styles.meta}>{row.phone ?? 'Pas de numéro'}</Text>
+        </View>
+      ) : null}
+
+      {next ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={pending}
+          onPress={onAct}
+          style={[styles.action, undo ? styles.actionQuiet : mode === 'livraison' ? styles.actionDeliver : styles.actionPrepare]}
+        >
+          <Text style={[styles.actionText, undo && styles.actionTextQuiet]}>{next.label}</Text>
+        </Pressable>
+      ) : mode === 'livraison' && (stage === 'a_preparer' || stage === 'attente_choix') ? (
+        <Text style={styles.hint}>Pas encore prêt : à préparer d’abord.</Text>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexGrow: 0, flexShrink: 0 },
-  page: { flex: 1, backgroundColor: colors.background },
-  summary: { backgroundColor: colors.primaryDark, borderRadius: radii.lg, margin: spacing.md, marginBottom: spacing.sm, padding: spacing.lg, gap: spacing.xs, ...shadows.soft },
-  viewSwitch: { flexDirection: 'row', alignSelf: 'flex-start', backgroundColor: colors.surface, borderRadius: radii.round, padding: spacing.xs },
-  viewButton: { borderRadius: radii.round, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  viewButtonActive: { backgroundColor: colors.primary },
-  viewText: { color: colors.muted, fontWeight: '700' },
-  viewTextActive: { color: colors.surface },
-  date: { color: colors.sand, fontSize: 13 },
-  total: { color: colors.white, fontSize: 30, fontWeight: '900' },
-  progress: { color: colors.sand, fontSize: 14, fontWeight: '600' },
-  filters: { gap: spacing.sm, paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
-  filter: { borderRadius: radii.round, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  filterActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  filterText: { color: colors.muted, fontWeight: '600' },
-  filterTextActive: { color: colors.surface },
-  zoneFilters: { gap: spacing.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  zoneText: { color: colors.muted, fontWeight: '600' },
-  zoneTextActive: { color: colors.primary, fontWeight: '900' },
-  list: { padding: spacing.md, gap: spacing.sm },
-  delivery: { backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, gap: spacing.sm, ...shadows.soft },
-  deliveryHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.sm },
-  deliveryTitle: { flex: 1 },
+  page: { backgroundColor: colors.background },
+  content: { gap: spacing.md, padding: spacing.md, paddingBottom: spacing.xl },
+  switch: { flexDirection: 'row', gap: spacing.xs, backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.round, padding: spacing.xs },
+  switchButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, borderRadius: radii.round, paddingVertical: spacing.sm + 2 },
+  switchActive: { backgroundColor: colors.primary },
+  switchText: { color: colors.muted, fontSize: 15, fontWeight: '800' },
+  switchTextActive: { color: colors.white },
+  summary: { backgroundColor: colors.primaryDark, borderRadius: radii.lg, gap: 2, padding: spacing.lg, ...shadows.soft },
+  summaryDate: { color: colors.sand, fontSize: 13, fontWeight: '700' },
+  summaryTotal: { color: colors.white, fontSize: 30, fontWeight: '900' },
+  summaryMeta: { color: colors.sand, fontSize: 14, fontWeight: '600' },
+  card: { backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.lg, gap: spacing.sm, padding: spacing.md },
+  cardTitle: { color: colors.primaryDark, fontSize: 16, fontWeight: '900' },
+  totalRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
+  totalCount: { color: colors.primary, fontSize: 16, fontWeight: '900', minWidth: 36 },
+  totalName: { flex: 1, color: colors.text, fontSize: 15 },
+  notice: { backgroundColor: colors.warningSoft, borderRadius: radii.md, padding: spacing.md },
+  noticeText: { color: colors.text, fontSize: 14, lineHeight: 20 },
+  empty: { color: colors.muted, fontSize: 14, lineHeight: 21, textAlign: 'center', paddingVertical: spacing.lg },
+  meal: { backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.lg, gap: spacing.sm, padding: spacing.md, ...shadows.soft },
+  mealDim: { opacity: 0.6 },
+  mealHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.sm },
+  mealTitle: { flex: 1 },
   name: { color: colors.primaryDark, fontSize: 16, fontWeight: '800' },
   meta: { color: colors.muted, fontSize: 13, lineHeight: 18 },
-  deliveryDate: { color: colors.primaryDark, fontSize: 13, fontWeight: '800' },
-  deliverButton: { alignItems: 'center', backgroundColor: colors.accentSoft, borderRadius: radii.md, marginTop: spacing.sm, padding: spacing.md },
-  deliverButtonText: { color: colors.accent, fontWeight: '900' }
+  pill: { borderRadius: radii.round, paddingHorizontal: spacing.sm, paddingVertical: 4 },
+  pillText: { color: colors.text, fontSize: 11, fontWeight: '800' },
+  bowl: { backgroundColor: colors.cream, borderRadius: radii.md, gap: 2, padding: spacing.md },
+  bowlLine: { color: colors.text, fontSize: 15 },
+  bowlMain: { fontWeight: '800' },
+  defaultTag: { color: colors.info, fontSize: 12, fontStyle: 'italic', marginTop: 2 },
+  delivery: { gap: 2 },
+  action: { alignItems: 'center', borderRadius: radii.md, padding: spacing.md },
+  actionPrepare: { backgroundColor: colors.primary },
+  actionDeliver: { backgroundColor: colors.accent },
+  actionQuiet: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 },
+  actionText: { color: colors.white, fontWeight: '900' },
+  actionTextQuiet: { color: colors.muted },
+  hint: { color: colors.muted, fontSize: 13, fontStyle: 'italic' }
 });

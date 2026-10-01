@@ -1,3 +1,4 @@
+import type { BoardRow } from '@/features/deliveries/board';
 import { localDateKey } from '@/lib/dates';
 import { requireSupabase } from '@/lib/supabase/client';
 import type { Delivery, DeliveryStatus } from '@/types/domain';
@@ -77,4 +78,11 @@ export async function updateDeliveryStatus(id: string, status: DeliveryStatus): 
     p_status: status
   });
   if (error) throw error;
+}
+
+/** Livraisons d'une période (14 jours au plus) avec le repas choisi par chaque client */
+export async function listBoard(from: string, to: string): Promise<BoardRow[]> {
+  const { data, error } = await requireSupabase().rpc('deliveries_board', { p_from: from, p_to: to });
+  if (error) throw error;
+  return data as BoardRow[];
 }

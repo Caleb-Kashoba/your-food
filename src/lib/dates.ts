@@ -57,3 +57,8 @@ export function nextWorkingDay(date: string): string {
 export function capitalizeFirst(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
+
+/** « ven. 2 oct. » : étiquette courte d'un jour */
+export function formatDayChip(date: string): string {
+  return format(parseISO(date), 'EEE d MMM', { locale: fr });
+}
