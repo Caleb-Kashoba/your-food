@@ -118,3 +118,36 @@ export async function updateSubscriptionNotes(id: string, notes: string): Promis
   });
   if (error) throw error;
 }
+
+/** Abonnement en semaines : lundi → vendredi, prix hebdomadaire × semaines (ou prix total exceptionnel) */
+export async function createSubscriptionWeeks(params: {
+  customerId: string;
+  planId: string;
+  startDate: string;
+  weeks: number;
+  totalPrice?: number | null;
+  notes?: string | null;
+  renewedFromId?: string | null;
+}): Promise<string> {
+  const { data, error } = await requireSupabase().rpc('create_subscription_weeks', {
+    p_customer: params.customerId,
+    p_plan: params.planId,
+    p_start: params.startDate,
+    p_weeks: params.weeks,
+    p_total_price: params.totalPrice ?? null,
+    p_notes: params.notes ?? null,
+    p_renewed_from: params.renewedFromId ?? null
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Prix exceptionnel pour un abonnement précis (la raison est conservée dans l'historique) */
+export async function setSubscriptionPrice(id: string, total: number, reason: string): Promise<void> {
+  const { error } = await requireSupabase().rpc('set_subscription_price', {
+    p_subscription: id,
+    p_total: total,
+    p_reason: reason
+  });
+  if (error) throw error;
+}

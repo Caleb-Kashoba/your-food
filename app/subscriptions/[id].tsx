@@ -11,7 +11,7 @@ import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { listPayments } from '@/features/payments/payments.service';
-import { getSubscriptionDetail, setSubscriptionStatus, updateSubscriptionNotes } from '@/features/subscriptions/subscriptions.service';
+import { getSubscriptionDetail, setSubscriptionPrice, setSubscriptionStatus, updateSubscriptionNotes } from '@/features/subscriptions/subscriptions.service';
 import { calculateRenewalStartDate, formatLocalDate } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { formatMoney } from '@/lib/money';
@@ -127,11 +127,43 @@ export default function SubscriptionDetailScreen() {
             })}
             variant="secondary"
           />
+          <PriceEditor currency={item.currency} currentPrice={item.price} id={id} onSaved={refresh} />
           <NotesEditor id={id} initialNotes={item.notes ?? ''} onSaved={refresh} />
-          <Text style={styles.meta}>Le client, la formule appliquée, le tarif et la période restent immuables pour préserver l’historique.</Text>
+          <Text style={styles.meta}>Le client, la formule appliquée et la période restent immuables pour préserver l’historique ; le prix ne change que par une décision motivée ci-dessus.</Text>
         </Card>
       ) : null}
     </Screen>
+  );
+}
+
+/** Prix exceptionnel pour ce client uniquement (le prix de la formule, lui, ne bouge pas) ; la raison est conservée */
+function PriceEditor({ id, currentPrice, currency, onSaved }: { id: string; currentPrice: number; currency: string; onSaved: () => Promise<void> }) {
+  const [price, setPrice] = useState('');
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const value = Number.parseFloat(price.replace(/\s/g, '').replace(',', '.'));
+  const save = async () => {
+    try {
+      setSaving(true);
+      await setSubscriptionPrice(id, value, reason);
+      setPrice('');
+      setReason('');
+      await onSaved();
+      Alert.alert('Prix modifié');
+    } catch (error) {
+      Alert.alert('Modification impossible', getErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <View style={styles.notesEditor}>
+      <Text style={styles.sectionTitle}>Prix exceptionnel</Text>
+      <Text style={styles.meta}>Prix actuel : {formatMoney(currentPrice, currency)}. Ce changement ne concerne que cet abonnement.</Text>
+      <AppInput keyboardType="decimal-pad" label="Nouveau prix total" onChangeText={setPrice} value={price} />
+      <AppInput label="Raison du changement" onChangeText={setReason} value={reason} />
+      <AppButton disabled={!Number.isFinite(value) || value <= 0 || !reason.trim()} label="Modifier le prix" loading={saving} onPress={() => void save()} variant="secondary" />
+    </View>
   );
 }
 

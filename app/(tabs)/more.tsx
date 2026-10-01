@@ -9,6 +9,12 @@ import { getErrorMessage } from '@/lib/errors';
 import { colors, radii, spacing } from '@/theme/colors';
 
 const links: { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; href: Href; permission?: string }[] = [
+  { label: 'Suivi du jour', icon: 'checkbox-outline' as const, href: '/orders/live' as const, permission: 'orders.read' },
+  { label: 'Menus de la semaine', icon: 'calendar-number-outline' as const, href: '/menus' as const, permission: 'menus.read' },
+  { label: 'Carte des plats', icon: 'fast-food-outline' as const, href: '/catalog' as const, permission: 'menus.read' },
+  { label: 'Avis des clients', icon: 'chatbubble-ellipses-outline' as const, href: '/reviews' as const, permission: 'orders.read' },
+  { label: 'Statistiques', icon: 'stats-chart-outline' as const, href: '/stats' as const, permission: 'orders.read' },
+  { label: 'Accès des clients', icon: 'qr-code-outline' as const, href: '/customers/access' as const, permission: 'customers.write' },
   { label: 'Formules', icon: 'pricetags-outline' as const, href: '/plans' as const, permission: 'subscriptions.read' },
   { label: 'Abonnements', icon: 'repeat-outline' as const, href: '/subscriptions' as const, permission: 'subscriptions.read' },
   { label: 'Alertes', icon: 'notifications-outline' as const, href: '/alerts' as const, permission: 'subscriptions.read' },
@@ -17,7 +23,7 @@ const links: { label: string; icon: React.ComponentProps<typeof Ionicons>['name'
   { label: 'Rapports', icon: 'bar-chart-outline' as const, href: '/coming-soon?feature=Rapports' as const, permission: 'reports.read' },
   { label: 'Paramètres', icon: 'settings-outline' as const, href: '/settings' as const, permission: 'settings.business.write' },
   { label: 'Utilisateurs', icon: 'shield-checkmark-outline' as const, href: '/users' as const, permission: 'users.read' },
-  { label: 'Journal d’audit', icon: 'reader-outline' as const, href: '/system/audit' as const, permission: 'system.audit.read' },
+  { label: 'Journal d’activité', icon: 'reader-outline' as const, href: '/system/audit' as const, permission: 'audit.read' },
   { label: 'Permissions globales', icon: 'key-outline' as const, href: '/system/permissions' as const, permission: 'system.root.manage' },
   { label: 'Diagnostic système', icon: 'pulse-outline' as const, href: '/system/diagnostics' as const, permission: 'system.settings.write' }
 ];

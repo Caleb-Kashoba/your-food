@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import {
   bootstrapFirstRoot,
   createSessionFromAuthLink,
+  loadCurrentCustomer,
   loadCurrentMember,
   signInWithPassword,
   signOut
@@ -12,11 +13,13 @@ import {
 import { parseAuthLink } from '@/features/auth/auth-link';
 import { getErrorMessage } from '@/lib/errors';
 import { supabase } from '@/lib/supabase/client';
-import type { CurrentMember } from '@/types/domain';
+import type { CurrentCustomer, CurrentMember } from '@/types/domain';
 
 interface AuthContextValue {
   session: Session | null;
   member: CurrentMember | null;
+  /** Renseigné quand le compte connecté est un client (et non un membre de l'équipe) */
+  customer: CurrentCustomer | null;
   loading: boolean;
   needsBootstrap: boolean;
   error: string | null;
@@ -28,6 +31,13 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+/** Membre de l'équipe en priorité, sinon client */
+async function loadIdentity(session: Session): Promise<{ member: CurrentMember | null; customer: CurrentCustomer | null }> {
+  const member = await loadCurrentMember(session);
+  if (member) return { member, customer: null };
+  return { member: null, customer: await loadCurrentCustomer() };
+}
 
 function getCurrentWebUrl(): string | null {
   if (Platform.OS !== 'web' || typeof globalThis.location?.href !== 'string') return null;
@@ -44,17 +54,21 @@ function clearWebAuthParameters(url: string): void {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [member, setMember] = useState<CurrentMember | null>(null);
+  const [customer, setCustomer] = useState<CurrentCustomer | null>(null);
+  const [resolving, setResolving] = useState(false);
   const [loading, setLoading] = useState(Boolean(supabase));
   const [error, setError] = useState<string | null>(null);
 
   const refreshMember = useCallback(async () => {
     if (!session) {
       setMember(null);
+      setCustomer(null);
       return;
     }
 
-    const nextMember = await loadCurrentMember(session);
-    setMember(nextMember);
+    const identity = await loadIdentity(session);
+    setMember(identity.member);
+    setCustomer(identity.customer);
   }, [session]);
 
   useEffect(() => {
@@ -67,7 +81,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const applySession = async (nextSession: Session | null) => {
       if (!mounted) return;
       setSession(nextSession);
-      setMember(nextSession ? await loadCurrentMember(nextSession) : null);
+      const identity = nextSession ? await loadIdentity(nextSession) : { member: null, customer: null };
+      setMember(identity.member);
+      setCustomer(identity.customer);
     };
 
     const processAuthUrl = async (url: string) => {
@@ -115,10 +131,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       if (!nextSession) {
         setMember(null);
+        setCustomer(null);
       } else {
-        void loadCurrentMember(nextSession)
-          .then(setMember)
-          .catch((caught: unknown) => setError(getErrorMessage(caught)));
+        // Tant que l'identité n'est pas connue, la navigation attend (évite un renvoi vers l'initialisation)
+        setResolving(true);
+        void loadIdentity(nextSession)
+          .then((identity) => {
+            setMember(identity.member);
+            setCustomer(identity.customer);
+          })
+          .catch((caught: unknown) => setError(getErrorMessage(caught)))
+          .finally(() => setResolving(false));
       }
     });
 
@@ -142,8 +165,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       session,
       member,
-      loading,
-      needsBootstrap: Boolean(session && !member),
+      customer,
+      loading: loading || resolving,
+      needsBootstrap: Boolean(session && !member && !customer),
       error,
       signIn: async (email, password) => {
         setError(null);
@@ -161,7 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshMember,
       hasPermission: (permission) => member?.role === 'root' || member?.permissions.includes(permission) === true
     }),
-    [error, loading, member, refreshMember, session]
+    [customer, error, loading, member, refreshMember, resolving, session]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

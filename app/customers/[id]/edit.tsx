@@ -41,7 +41,7 @@ export default function EditCustomerScreen() {
         initialValues={{
           firstName: item.firstName,
           lastName: item.lastName,
-          phone: item.phone,
+          phone: item.phone ?? '',
           whatsapp: item.whatsapp ?? '',
           residence: item.residence ?? '',
           building: item.building ?? '',

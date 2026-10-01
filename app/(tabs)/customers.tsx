@@ -24,9 +24,14 @@ export default function CustomersScreen() {
           <AppInput label="Rechercher" onChangeText={setSearch} placeholder="Nom ou téléphone" value={search} />
         </View>
         {hasPermission('customers.write') ? (
-          <Pressable accessibilityLabel="Ajouter un client" onPress={() => router.push('/customers/new')} style={styles.addButton}>
-            <Ionicons color={colors.surface} name="add" size={28} />
-          </Pressable>
+          <>
+            <Pressable accessibilityLabel="Accès des clients" onPress={() => router.push('/customers/access')} style={styles.accessButton}>
+              <Ionicons color={colors.primary} name="key-outline" size={24} />
+            </Pressable>
+            <Pressable accessibilityLabel="Ajouter un client" onPress={() => router.push('/customers/new')} style={styles.addButton}>
+              <Ionicons color={colors.surface} name="add" size={28} />
+            </Pressable>
+          </>
         ) : null}
       </View>
       {customers.isLoading ? (
@@ -51,7 +56,7 @@ export default function CustomersScreen() {
               </View>
               <View style={styles.customerBody}>
                 <Text style={styles.name}>{item.firstName} {item.lastName}</Text>
-                <Text style={styles.detail}>{item.phone}</Text>
+                <Text style={styles.detail}>{item.phone ?? 'Pas de numéro'}</Text>
                 <Text style={styles.detail}>{[item.residence, item.building, item.room].filter(Boolean).join(' · ') || 'Adresse non renseignée'}</Text>
               </View>
               <Ionicons color={colors.muted} name="chevron-forward" size={20} />
@@ -64,6 +69,7 @@ export default function CustomersScreen() {
 }
 
 const styles = StyleSheet.create({
+  accessButton: { alignItems: 'center', justifyContent: 'center', width: 52, height: 52, borderRadius: radii.round, backgroundColor: colors.primarySoft },
   page: { flex: 1, backgroundColor: colors.background },
   toolbar: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, padding: spacing.md, paddingBottom: spacing.sm },
   search: { flex: 1 },

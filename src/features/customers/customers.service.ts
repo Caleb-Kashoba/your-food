@@ -7,8 +7,9 @@ interface CustomerRecord {
   id: string;
   first_name: string;
   last_name: string;
-  phone: string;
-  phone_normalized: string;
+  phone: string | null;
+  phone_normalized: string | null;
+  auth_user_id: string | null;
   whatsapp: string | null;
   residence: string | null;
   building: string | null;
@@ -41,6 +42,7 @@ function mapCustomer(row: CustomerRecord): Customer {
     lastName: row.last_name,
     phone: row.phone,
     normalizedPhone: row.phone_normalized,
+    hasAccount: row.auth_user_id !== null,
     whatsapp: row.whatsapp,
     residence: row.residence,
     building: row.building,
@@ -58,7 +60,7 @@ function mapCustomer(row: CustomerRecord): Customer {
 }
 
 const customerSelection =
-  'id, first_name, last_name, phone, phone_normalized, whatsapp, residence, building, room, zone_id, address_details, food_preferences, allergies, foods_to_avoid, notes, status, created_at, delivery_zones(name)';
+  'id, first_name, last_name, phone, phone_normalized, auth_user_id, whatsapp, residence, building, room, zone_id, address_details, food_preferences, allergies, foods_to_avoid, notes, status, created_at, delivery_zones(name)';
 
 export async function listCustomers(search = ''): Promise<Customer[]> {
   const client = requireSupabase();
@@ -86,8 +88,7 @@ export async function getCustomer(id: string): Promise<Customer> {
 }
 
 export async function createCustomer(organizationId: string, memberId: string, payload: CustomerPayload): Promise<string> {
-  const normalized = normalizePhone(payload.phone);
-  if (!normalized) throw new Error('Numéro de téléphone invalide.');
+  if (payload.phone && !normalizePhone(payload.phone)) throw new Error('Numéro de téléphone invalide.');
 
   const { data, error } = await requireSupabase()
     .from('customers')
@@ -95,7 +96,7 @@ export async function createCustomer(organizationId: string, memberId: string, p
       organization_id: organizationId,
       first_name: payload.firstName,
       last_name: payload.lastName,
-      phone: payload.phone,
+      phone: payload.phone || null,
       whatsapp: payload.whatsapp || null,
       residence: payload.residence,
       building: payload.building,
@@ -123,7 +124,7 @@ export async function updateCustomer(id: string, memberId: string, payload: Cust
     .update({
       first_name: payload.firstName,
       last_name: payload.lastName,
-      phone: payload.phone,
+      phone: payload.phone || null,
       whatsapp: payload.whatsapp || null,
       residence: payload.residence,
       building: payload.building,

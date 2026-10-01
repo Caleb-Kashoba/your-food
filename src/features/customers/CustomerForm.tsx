@@ -82,10 +82,10 @@ export function CustomerForm({ initialValues, onSubmit, submitLabel }: CustomerF
           <AppInput
             error={errors.phone?.message}
             keyboardType="phone-pad"
-            label="Téléphone *"
+            label="Téléphone (facultatif)"
             onBlur={field.onBlur}
             onChangeText={field.onChange}
-            placeholder="0812345678"
+            placeholder="0812345678 — laisser vide si le client n'en a pas"
             value={field.value}
           />
         )}

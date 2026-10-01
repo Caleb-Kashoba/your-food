@@ -11,6 +11,9 @@ const parsed = envSchema.safeParse({
 });
 
 export const env = parsed.success ? parsed.data : null;
+/** Adresse publique du site (liens d'accès envoyés aux clients). Valeur publique, pas un secret. */
+export const webBaseUrl = process.env.EXPO_PUBLIC_WEB_URL ?? 'https://your-food-gilt.vercel.app';
+
 export const envError = parsed.success
   ? null
   : 'Configurez EXPO_PUBLIC_SUPABASE_URL et EXPO_PUBLIC_SUPABASE_ANON_KEY dans .env.';

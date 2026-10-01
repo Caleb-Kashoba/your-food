@@ -8,6 +8,7 @@ import { Screen } from '@/components/ui/Screen';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { AccessCard } from '@/features/client-access/AccessCard';
 import { getCustomer } from '@/features/customers/customers.service';
 import { listCustomerDeliveries } from '@/features/deliveries/deliveries.service';
 import { listPayments } from '@/features/payments/payments.service';
@@ -44,7 +45,7 @@ export default function CustomerDetailScreen() {
         <View style={styles.avatar}><Text style={styles.avatarText}>{item.firstName[0]}{item.lastName[0]}</Text></View>
         <View style={styles.grow}>
           <Text style={styles.name}>{item.firstName} {item.lastName}</Text>
-          <Text style={styles.meta}>{item.phone}</Text>
+          <Text style={styles.meta}>{item.phone ?? 'Pas de numéro'}</Text>
         </View>
         {hasPermission('customers.write') ? (
           <Pressable onPress={() => router.push({ pathname: '/customers/[id]/edit', params: { id } })} style={styles.iconButton}>
@@ -60,16 +61,18 @@ export default function CustomerDetailScreen() {
         <Info label="Dernière activité" value={lastActivity ? formatLocalDate(lastActivity) : null} />
       </Card>
       <View style={styles.actions}>
-        <Pressable
-          onPress={() => router.push({
-            pathname: '/whatsapp/compose',
-            params: { phone: item.whatsapp || item.phone, customerName: item.firstName, templateCode: 'custom' }
-          })}
-          style={styles.whatsapp}
-        >
-          <Ionicons color={colors.surface} name="logo-whatsapp" size={21} />
-          <Text style={styles.whatsappText}>Contacter</Text>
-        </Pressable>
+        {item.whatsapp || item.phone ? (
+          <Pressable
+            onPress={() => router.push({
+              pathname: '/whatsapp/compose',
+              params: { phone: (item.whatsapp || item.phone)!, customerName: item.firstName, templateCode: 'custom' }
+            })}
+            style={styles.whatsapp}
+          >
+            <Ionicons color={colors.surface} name="logo-whatsapp" size={21} />
+            <Text style={styles.whatsappText}>Contacter</Text>
+          </Pressable>
+        ) : null}
         {hasPermission('subscriptions.write') ? (
           <Pressable onPress={() => router.push({ pathname: '/subscriptions/new', params: { customerId: id } })} style={styles.secondaryAction}>
             <Ionicons color={colors.primary} name="add-circle-outline" size={21} />
@@ -77,6 +80,7 @@ export default function CustomerDetailScreen() {
           </Pressable>
         ) : null}
       </View>
+      {hasPermission('customers.write') ? <AccessCard customer={item} /> : null}
       <Card style={styles.card}>
         <Text style={styles.sectionTitle}>Livraison</Text>
         <Info label="Résidence" value={item.residence} />

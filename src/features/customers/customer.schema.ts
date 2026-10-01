@@ -7,7 +7,10 @@ const optionalText = z.string().trim().transform((value) => value || null);
 export const customerSchema = z.object({
   firstName: z.string().trim().min(1, 'Le prénom est obligatoire.'),
   lastName: z.string().trim().min(1, 'Le nom est obligatoire.'),
-  phone: z.string().trim().refine((value) => normalizePhone(value) !== null, 'Numéro de téléphone invalide.'),
+  phone: z
+    .string()
+    .trim()
+    .refine((value) => value === '' || normalizePhone(value) !== null, 'Numéro de téléphone invalide.'),
   whatsapp: z
     .string()
     .trim()

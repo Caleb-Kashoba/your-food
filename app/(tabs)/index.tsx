@@ -17,7 +17,7 @@ const dashboardRealtimeKeys = [['dashboard']] as const;
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const { member } = useAuth();
+  const { member, hasPermission } = useAuth();
   const metrics = useQuery({ queryKey: ['dashboard'], queryFn: getDashboardMetrics });
   useTableRealtime('deliveries', member?.organizationId, dashboardRealtimeKeys);
   useTableRealtime('subscriptions', member?.organizationId, dashboardRealtimeKeys);
@@ -65,6 +65,14 @@ export default function DashboardScreen() {
           <Ionicons color={colors.white} name="arrow-forward" size={22} />
         </Pressable>
       </Card>
+
+      {hasPermission('orders.read') ? (
+        <Pressable accessibilityRole="button" onPress={() => router.push('/orders/live')} style={styles.liveLink}>
+          <Ionicons color={colors.primary} name="checkbox-outline" size={22} />
+          <Text style={styles.liveLinkText}>Suivi des commandes du jour</Text>
+          <Ionicons color={colors.muted} name="chevron-forward" size={20} />
+        </Pressable>
+      ) : null}
 
       <View style={styles.grid}>
         <MetricCard icon="add-circle-outline" label="Nouveaux abonnements" value={data.newSubscriptions} />
@@ -117,6 +125,8 @@ function MetricCard({
 }
 
 const styles = StyleSheet.create({
+  liveLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.lg, padding: spacing.md },
+  liveLinkText: { flex: 1, color: colors.primaryDark, fontSize: 15, fontWeight: '800' },
   content: { padding: spacing.md, gap: spacing.md, backgroundColor: colors.background },
   hero: { backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.xl, padding: spacing.md, gap: spacing.lg, ...shadows.soft },
   heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },

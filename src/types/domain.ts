@@ -28,12 +28,19 @@ export interface CurrentMember {
   permissions: string[];
 }
 
+export interface CurrentCustomer {
+  id: string;
+}
+
 export interface Customer {
   id: string;
   firstName: string;
   lastName: string;
-  phone: string;
-  normalizedPhone: string;
+  /** Facultatif : sans numéro, l'accès est remis en main propre (lien ou QR code) */
+  phone: string | null;
+  normalizedPhone: string | null;
+  /** Le client a activé son compte (mot de passe créé) */
+  hasAccount: boolean;
   whatsapp: string | null;
   residence: string | null;
   building: string | null;
@@ -85,7 +92,7 @@ export interface Delivery {
   subscriptionId: string;
   deliveryDate: string;
   customerName: string;
-  phone: string;
+  phone: string | null;
   residence: string | null;
   building: string | null;
   room: string | null;

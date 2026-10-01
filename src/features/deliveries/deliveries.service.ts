@@ -8,7 +8,7 @@ interface DeliveryRecord {
   subscription_id: string;
   delivery_date: string;
   customer_name: string;
-  phone: string;
+  phone: string | null;
   residence: string | null;
   building: string | null;
   room: string | null;

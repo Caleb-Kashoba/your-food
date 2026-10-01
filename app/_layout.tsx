@@ -2,7 +2,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { Stack, usePathname, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ConnectivityBanner } from '@/components/ConnectivityBanner';
@@ -10,7 +10,15 @@ import { LoadingView } from '@/components/ui/StateViews';
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
 import { envError } from '@/lib/env';
 import { queryClient } from '@/lib/query-client';
+import { installWebAlert } from '@/lib/web-alert';
 import { colors, spacing } from '@/theme/colors';
+
+installWebAlert();
+
+/** Écrans publics du client (connexion, première connexion, lien reçu par WhatsApp ou QR code) */
+const CLIENT_PUBLIC_PATHS = ['/connexion', '/premiere-connexion', '/bienvenue'];
+/** Espace du client connecté */
+const CLIENT_AREA_PATHS = ['/menu', '/historique', '/compte'];
 
 export default function RootLayout() {
   return (
@@ -25,7 +33,7 @@ export default function RootLayout() {
 }
 
 function AppNavigator() {
-  const { session, member, loading } = useAuth();
+  const { session, member, customer, loading } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -34,11 +42,23 @@ function AppNavigator() {
     const onSignIn = pathname === '/sign-in';
     const onBootstrap = pathname === '/bootstrap';
     const onActivation = pathname === '/auth/activate';
+    const onClientPublic = CLIENT_PUBLIC_PATHS.includes(pathname);
+    const onClientArea = CLIENT_AREA_PATHS.includes(pathname);
 
-    if (!session && !onSignIn && !onActivation) router.replace('/sign-in');
-    else if (session && !member && !onBootstrap && !onActivation) router.replace('/bootstrap');
-    else if (session && member && (onSignIn || onBootstrap || pathname === '/')) router.replace('/(tabs)');
-  }, [loading, member, pathname, router, session]);
+    if (!session) {
+      // Web : les clients arrivent par leur lien ou la page de connexion ; mobile : application de l'équipe
+      if (!onSignIn && !onActivation && !onClientPublic) {
+        router.replace(Platform.OS === 'web' ? '/connexion' : '/sign-in');
+      }
+    } else if (member) {
+      if (onSignIn || onBootstrap || onClientPublic || onClientArea || pathname === '/') router.replace('/(tabs)');
+    } else if (customer) {
+      // Un client n'accède qu'à son espace
+      if (!onClientArea) router.replace('/menu');
+    } else if (!onBootstrap && !onActivation) {
+      router.replace('/bootstrap');
+    }
+  }, [customer, loading, member, pathname, router, session]);
 
   if (envError) {
     return (
@@ -68,8 +88,19 @@ function AppNavigator() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="auth/activate" options={{ title: 'Activer mon compte', headerBackVisible: false }} />
+        <Stack.Screen name="connexion" options={{ headerShown: false }} />
+        <Stack.Screen name="premiere-connexion" options={{ headerShown: false }} />
+        <Stack.Screen name="bienvenue" options={{ headerShown: false }} />
+        <Stack.Screen name="(client)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="bootstrap" options={{ title: 'Initialisation sécurisée', headerBackVisible: false }} />
+        <Stack.Screen name="customers/access" options={{ title: 'Accès des clients' }} />
+        <Stack.Screen name="catalog/index" options={{ title: 'Carte des plats' }} />
+        <Stack.Screen name="menus/index" options={{ title: 'Menus' }} />
+        <Stack.Screen name="menus/publish" options={{ title: 'Publier un menu' }} />
+        <Stack.Screen name="orders/live" options={{ title: 'Suivi du jour' }} />
+        <Stack.Screen name="reviews/index" options={{ title: 'Avis des clients' }} />
+        <Stack.Screen name="stats/index" options={{ title: 'Statistiques' }} />
         <Stack.Screen name="customers/new" options={{ title: 'Nouveau client' }} />
         <Stack.Screen name="customers/[id]" options={{ title: 'Fiche client' }} />
         <Stack.Screen name="customers/[id]/edit" options={{ title: 'Modifier le client' }} />

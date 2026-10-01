@@ -110,7 +110,7 @@ export default function TodayScreen() {
             </View>
             <Text style={styles.meta}>{[item.zoneName, item.residence, item.building, item.room].filter(Boolean).join(' · ')}</Text>
             {view === 'week' ? <Text style={styles.deliveryDate}>{formatLocalDate(item.deliveryDate)}</Text> : null}
-            <Text style={styles.meta}>{item.phone}</Text>
+            <Text style={styles.meta}>{item.phone ?? 'Pas de numéro'}</Text>
             {item.status !== 'delivered' && item.status !== 'cancelled' && hasPermission('deliveries.update') ? (
               <Pressable
                 disabled={mutation.isPending}

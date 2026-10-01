@@ -1,4 +1,4 @@
-import { addDays, addMonths, addWeeks, differenceInCalendarDays, format, parseISO, subDays } from 'date-fns';
+import { addDays, addMonths, addWeeks, differenceInCalendarDays, format, getISODay, parseISO, startOfISOWeek, subDays } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
 export type DurationUnit = 'day' | 'week' | 'month';
@@ -29,4 +29,31 @@ export function addLocalDays(date: string, amount: number): string {
 
 export function calculateRenewalStartDate(previousEndDate: string): string {
   return addLocalDays(previousEndDate, 1);
+}
+
+/** « jeudi 1 octobre » */
+export function formatDayMonth(date: string): string {
+  return format(parseISO(date), 'EEEE d MMMM', { locale: fr });
+}
+
+/** « 1 oct. » */
+export function formatShortDate(date: string): string {
+  return format(parseISO(date), 'd MMM', { locale: fr });
+}
+
+/** Lundi de la semaine d'une date (AAAA-MM-JJ) */
+export function mondayOf(date: string): string {
+  return format(startOfISOWeek(parseISO(date)), 'yyyy-MM-dd');
+}
+
+/** Prochain jour ouvré (lundi → vendredi) après une date */
+export function nextWorkingDay(date: string): string {
+  let next = addDays(parseISO(date), 1);
+  while (getISODay(next) > 5) next = addDays(next, 1);
+  return format(next, 'yyyy-MM-dd');
+}
+
+/** Première lettre en majuscule (« jeudi 1 octobre » → « Jeudi 1 octobre ») */
+export function capitalizeFirst(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

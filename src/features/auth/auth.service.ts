@@ -2,7 +2,7 @@ import type { Session } from '@supabase/supabase-js';
 
 import { parseAuthLink } from '@/features/auth/auth-link';
 import { requireSupabase } from '@/lib/supabase/client';
-import type { AppRole, CurrentMember } from '@/types/domain';
+import type { AppRole, CurrentCustomer, CurrentMember } from '@/types/domain';
 
 interface MemberRecord {
   id: string;
@@ -97,6 +97,14 @@ export async function loadCurrentMember(session: Session): Promise<CurrentMember
     role: role.name,
     permissions
   };
+}
+
+/** Le compte connecté est-il un client ? (les clients ne sont pas membres de l'équipe) */
+export async function loadCurrentCustomer(): Promise<CurrentCustomer | null> {
+  const { data, error } = await requireSupabase().rpc('my_context');
+  if (error) throw error;
+  const context = data as { kind: string; customer_id?: string } | null;
+  return context?.kind === 'customer' && context.customer_id ? { id: context.customer_id } : null;
 }
 
 export async function bootstrapFirstRoot(): Promise<void> {
