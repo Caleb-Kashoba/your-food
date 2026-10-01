@@ -30,3 +30,6 @@ enabled = true
 
 [functions.admin-users]
 verify_jwt = true
+
+[functions.client-access]
+verify_jwt = false
