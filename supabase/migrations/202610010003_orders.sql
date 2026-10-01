@@ -35,11 +35,11 @@ create or replace function public.meat_allowed_ctx(p_ctx jsonb, p_date date)
 returns boolean
 language sql
 immutable
-as $
+as $$
   select case when jsonb_typeof(p_ctx -> 'meat_weekdays') = 'array'
     then extract(isodow from p_date)::int in (select x::int from jsonb_array_elements_text(p_ctx -> 'meat_weekdays') x)
     else true end;
-$;
+$$;
 
 -- Situation d'abonnement d'un client à une date : période courante, sinon prochaine, sinon dernière
 create or replace function public.customer_subscription_context(p_customer uuid, p_today date)
