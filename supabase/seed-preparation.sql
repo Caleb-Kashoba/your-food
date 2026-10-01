@@ -1,5 +1,5 @@
 -- DONNÉES DE TEST — PROJET DE PRÉPARATION UNIQUEMENT. Ne jamais exécuter en production.
--- Administratrice de test : admin.prepa@yourfood.test / Admin@2026!
+-- Administratrice de test : admin.prepa@yourfood.test ; remplacer <MOT_DE_PASSE_DE_TEST> ci-dessous avant exécution (ne jamais le commiter)
 
 do $$
 declare
@@ -15,7 +15,7 @@ begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
                           raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
   values (admin_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-          'admin.prepa@yourfood.test', extensions.crypt('Admin@2026!', extensions.gen_salt('bf')), now(),
+          'admin.prepa@yourfood.test', extensions.crypt('<MOT_DE_PASSE_DE_TEST>', extensions.gen_salt('bf')), now(),
           '{"provider":"email","providers":["email"]}', '{"display_name":"Sarah BOKETSU"}', now(), now())
   on conflict (id) do nothing;
 

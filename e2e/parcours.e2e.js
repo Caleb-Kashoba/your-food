@@ -1,3 +1,4 @@
+if (!process.env.E2E_ADMIN_EMAIL || !process.env.E2E_ADMIN_PASSWORD) { console.error('Définir E2E_ADMIN_EMAIL et E2E_ADMIN_PASSWORD (compte administratrice de la préparation).'); process.exit(2); }
 const { chromium } = require('playwright-core');
 const path = require('path');
 const jsQR = require('jsqr');
@@ -31,8 +32,8 @@ async function step(name, fn) {
   // ─── Administratrice : connexion et génération des accès ───
   await step('admin : connexion par e-mail', async () => {
     await admin.goto(`${BASE}/sign-in`);
-    await field(admin, 'Adresse e-mail').fill('admin.prepa@yourfood.test');
-    await field(admin, 'Mot de passe').fill('Admin@2026!');
+    await field(admin, 'Adresse e-mail').fill(process.env.E2E_ADMIN_EMAIL);
+    await field(admin, 'Mot de passe').fill(process.env.E2E_ADMIN_PASSWORD);
     await admin.getByRole('button', { name: 'Ouvrir mon espace' }).click();
     await admin.getByText('Bonjour,', { exact: false }).first().waitFor({ timeout: 60000 });
   });

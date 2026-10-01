@@ -1,3 +1,4 @@
+if (!process.env.E2E_ADMIN_EMAIL || !process.env.E2E_ADMIN_PASSWORD) { console.error('Définir E2E_ADMIN_EMAIL et E2E_ADMIN_PASSWORD (compte administratrice de la préparation).'); process.exit(2); }
 const { chromium } = require('playwright-core');
 const BASE = 'http://localhost:4173';
 const field = (page, label) => page.getByText(label, { exact: true }).first().locator('xpath=following-sibling::input[1]');
@@ -10,8 +11,8 @@ async function step(name, fn) {
   const browser = await chromium.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
   const page = await (await browser.newContext({ viewport: { width: 400, height: 900 }, locale: 'fr-FR' })).newPage();
   await page.goto(`${BASE}/sign-in`);
-  await field(page, 'Adresse e-mail').fill('admin.prepa@yourfood.test');
-  await field(page, 'Mot de passe').fill('Admin@2026!');
+  await field(page, 'Adresse e-mail').fill(process.env.E2E_ADMIN_EMAIL);
+  await field(page, 'Mot de passe').fill(process.env.E2E_ADMIN_PASSWORD);
   await page.getByRole('button', { name: 'Ouvrir mon espace' }).click();
   await page.getByText('Bonjour,', { exact: false }).first().waitFor({ timeout: 60000 });
   await page.goto(`${BASE}/today`);
