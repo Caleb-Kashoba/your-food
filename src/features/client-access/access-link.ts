@@ -22,7 +22,10 @@ export function isCompleteAccessCode(raw: string): boolean {
 
 export function buildAccessLink(baseUrl: string, code: string, name: string): string {
   const base = baseUrl.replace(/\/+$/, '');
-  return `${base}/bienvenue#acces=${normalizeAccessCode(code)}&nom=${encodeURIComponent(name.trim())}`;
+  // Les espaces du nom deviennent des « + » : un « %20 » ou un espace peut faire sortir la fin du nom du lien cliquable
+  // dans les messageries ; la lecture du lien (URLSearchParams) retransforme les « + » en espaces.
+  const encodedName = encodeURIComponent(name.trim()).replace(/%20/g, '+');
+  return `${base}/bienvenue#acces=${normalizeAccessCode(code)}&nom=${encodedName}`;
 }
 
 export function parseAccessLink(url: string): AccessLinkData | null {

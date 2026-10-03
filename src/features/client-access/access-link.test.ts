@@ -13,8 +13,18 @@ import {
 describe('lien d’accès client', () => {
   it('place le code et le nom après le « # »', () => {
     const link = buildAccessLink('https://exemple.test/', 'abcd 2345', 'Mireille Kabongo');
-    expect(link).toBe('https://exemple.test/bienvenue#acces=ABCD2345&nom=Mireille%20Kabongo');
+    expect(link).toBe('https://exemple.test/bienvenue#acces=ABCD2345&nom=Mireille+Kabongo');
     expect(new URL(link).search).toBe('');
+  });
+
+  it('ne contient ni espace ni « %20 » : le nom entier reste dans le lien cliquable', () => {
+    const link = buildAccessLink('https://x.test', 'ABCD2345', 'Alfredo Alfredo Isasole');
+    expect(link).not.toMatch(/\s|%20/);
+    expect(parseAccessLink(link)).toEqual({ code: 'ABCD2345', name: 'Alfredo Alfredo Isasole' });
+  });
+
+  it('garde un « + » du nom réel (encodé %2B) sans le confondre avec une espace', () => {
+    expect(parseAccessLink(buildAccessLink('https://x.test', 'ABCD2345', 'Jean+Paul Ndala'))?.name).toBe('Jean+Paul Ndala');
   });
 
   it('relit le code et le nom, même avec des « + » ou des accents', () => {
