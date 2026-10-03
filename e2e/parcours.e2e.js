@@ -59,7 +59,7 @@ async function step(name, fn) {
     await admin.screenshot({ path: path.join(SHOTS, 'admin-acces.png'), fullPage: true });
     const png = PNG.sync.read(await admin.getByLabel('QR code d’accès').screenshot());
     const decoded = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
-    const expected = BASE + '/bienvenue#acces=' + mireilleCode + '&nom=Mireille+Kabongo';
+    const expected = BASE + '/bienvenue#acces=' + mireilleCode + '&nom=Mireille_Kabongo';
     if (!decoded) throw new Error('QR code illisible');
     if (decoded.data !== expected) throw new Error('QR décodé : ' + decoded.data);
   });

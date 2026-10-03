@@ -22,9 +22,9 @@ export function isCompleteAccessCode(raw: string): boolean {
 
 export function buildAccessLink(baseUrl: string, code: string, name: string): string {
   const base = baseUrl.replace(/\/+$/, '');
-  // Les espaces du nom deviennent des « + » : un « %20 » ou un espace peut faire sortir la fin du nom du lien cliquable
-  // dans les messageries ; la lecture du lien (URLSearchParams) retransforme les « + » en espaces.
-  const encodedName = encodeURIComponent(name.trim()).replace(/%20/g, '+');
+  // Les espaces du nom deviennent des « _ » : un espace, un « %20 » ou un « + » peut être décodé en chemin (paramètres de
+  // navigation, messagerie) et faire sortir la fin du nom du lien cliquable. Aucun nom de client ne contient de « _ ».
+  const encodedName = encodeURIComponent(name.trim()).replace(/%20/g, '_');
   return `${base}/bienvenue#acces=${normalizeAccessCode(code)}&nom=${encodedName}`;
 }
 
@@ -36,7 +36,8 @@ export function parseAccessLink(url: string): AccessLinkData | null {
   const code = normalizeAccessCode(parameters.get('acces') ?? '');
   if (!isCompleteAccessCode(code)) return null;
 
-  return { code, name: (parameters.get('nom') ?? '').trim() };
+  // « _ » (nouveau format), « + » ou espace (anciens liens) séparent le prénom du nom
+  return { code, name: (parameters.get('nom') ?? '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim() };
 }
 
 // Mémoire de la page : le lien est lu une fois, puis retiré de la barre d'adresse
