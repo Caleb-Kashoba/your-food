@@ -34,12 +34,31 @@ export interface SubscriptionContext {
   working_days_left?: number;
 }
 
-export interface TodayMenu {
+/** Repas d'aujourd'hui (commandé hier) : en lecture seule */
+export interface TodayMeal {
   date: string;
+  delivery_status: 'scheduled' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'failed' | 'cancelled';
+  is_default: boolean;
+  cancelled: boolean;
+  plat: string | null;
+  accompagnement: string | null;
+  viande: string | null;
+}
+
+export interface TodayMenu {
+  /** Jour du repas proposé : demain (on commande la veille, jusqu'à 20h) */
+  date: string;
+  /** Jour où l'on commande (aujourd'hui) */
+  order_date?: string;
   menu_status: MenuStatus;
   subscription: SubscriptionContext;
   meat_allowed_today: boolean;
-  menu: { id: string; deadline_time: string; lock_time: string; options: MenuOption[] } | null;
+  /** L'abonnement commence demain : le premier repas est attribué automatiquement */
+  first_day_default?: boolean;
+  today_meal?: TodayMeal | null;
+  /** Quand il n'y a pas de menu demain : le prochain menu publié */
+  next_menu_date?: string | null;
+  menu: { id: string; deadline_time: string; lock_time: string; lock_date?: string; options: MenuOption[] } | null;
   order: ClientOrder | null;
   review_due: { order_id: string; date: string } | null;
   server_now: string;

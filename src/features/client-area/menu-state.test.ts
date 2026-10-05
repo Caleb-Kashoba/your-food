@@ -119,6 +119,22 @@ describe('compte à rebours', () => {
     expect(secondsLeft(menu(), 'normal', Date.parse('2026-10-06T14:00:00Z'), 0)).toBe(0);
   });
 
+  it('la veille : le compte à rebours court le jour de la commande, pas le jour du repas', () => {
+    // Repas du mardi 6, commandé le lundi 5 jusqu'à 20h : à 09h00 il reste 4 h avant 13h00 et 11 h avant 20h
+    const veille = menu({ date: '2026-10-06', menu: { ...menu().menu!, lock_date: '2026-10-05' } });
+    const now = Date.parse('2026-10-05T08:00:00Z'); // 09h00 à Kinshasa
+    expect(secondsLeft(veille, 'normal', now, 0)).toBe(4 * 3600);
+    expect(secondsLeft({ ...veille, menu_status: 'en_retard' }, 'en_retard', now, 0)).toBe(11 * 3600);
+    // le jour du repas lui-même, plus rien à compter
+    expect(secondsLeft(veille, 'normal', Date.parse('2026-10-06T08:00:00Z'), 0)).toBe(0);
+  });
+
+  it('premier jour d’abonnement : pas de commande, repas attribué automatiquement', () => {
+    expect(deriveMenuState(menu({ first_day_default: true }))).toBe('premier_jour');
+    // après le verrouillage, le repas par défaut est affiché normalement
+    expect(deriveMenuState(menu({ first_day_default: true, menu_status: 'verrouille', order: order({ is_default: true }) }))).toBe('defaut');
+  });
+
   it('formate', () => {
     expect(formatCountdown(3 * 3600 + 5 * 60 + 9)).toBe('03:05:09');
     expect(formatHour('13:00:00')).toBe('13h00');

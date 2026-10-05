@@ -17,6 +17,7 @@ import {
   submitReview,
   type MealCategory,
   type MenuOption,
+  type TodayMeal,
   type TodayMenu
 } from '@/features/client-area/client.service';
 import {
@@ -44,8 +45,24 @@ const NOTICES: Partial<Record<ClientMenuState, { title: string; text: string; to
   verrouille: { title: 'Menu verrouillé', text: 'Ta commande est prise en compte.', tone: 'success' },
   defaut: { title: 'Attribué automatiquement', text: 'Aucun choix reçu : on t’a servi les plats les plus demandés.', tone: 'info' },
   annule: { title: 'Commande annulée', text: 'Ton repas est exclu de la préparation.', tone: 'danger' },
-  inactif: { title: 'Abonnement en pause', text: 'Contacte l’administratrice pour reprendre tes repas.', tone: 'warning' }
+  inactif: { title: 'Abonnement en pause', text: 'Contacte l’administratrice pour reprendre tes repas.', tone: 'warning' },
+  premier_jour: { title: 'Ton premier repas', text: 'Ton abonnement commence demain : on choisit ton premier repas pour toi. Ensuite, tu choisis la veille, avant 20h00.', tone: 'info' }
 };
+
+const DELIVERY_LABEL: Record<TodayMeal['delivery_status'], string> = {
+  scheduled: 'en préparation',
+  preparing: 'en préparation',
+  ready: 'prêt, bientôt livré',
+  out_for_delivery: 'en route',
+  delivered: 'livré',
+  failed: 'livraison manquée',
+  cancelled: 'annulé'
+};
+
+/** Jour avant une date « AAAA-MM-JJ » (le jour où l'on commande) */
+function dayBefore(date: string): string {
+  return new Date(Date.parse(`${date}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+}
 
 export default function ClientMenuScreen() {
   const queryClient = useQueryClient();
@@ -98,7 +115,7 @@ export default function ClientMenuScreen() {
       setConfirmCancel(false);
       setResuming(false);
       setError(null);
-      setFeedback('Repas annulé pour aujourd’hui.');
+      setFeedback('Repas annulé pour demain.');
       await refresh();
     },
     onError: (caught) => {
@@ -119,7 +136,7 @@ export default function ClientMenuScreen() {
   const unchanged = hasActiveOrder && !picksChanged(data, picks);
   const left = secondsLeft(data, state, now, data.device_offset_ms);
   const notice = NOTICES[state];
-  const showChoices = !['aucun_menu', 'non_commence', 'expire', 'inactif'].includes(state);
+  const showChoices = !['aucun_menu', 'non_commence', 'expire', 'inactif', 'premier_jour'].includes(state);
 
   const pick = (category: MealCategory, optionId: string) => {
     if (!editable) return;
@@ -136,9 +153,11 @@ export default function ClientMenuScreen() {
       </View>
 
       <View style={styles.heading}>
-        <Text style={styles.date}>Au menu {formatDayMonth(data.date)}.</Text>
+        <Text style={styles.date}>{state === 'aucun_menu' ? 'Demain' : 'Au menu demain'}, {formatDayMonth(data.date)}.</Text>
         <Text style={styles.headline}>{HEADLINES[state]}</Text>
       </View>
+
+      {data.today_meal ? <TodayMealCard meal={data.today_meal} /> : null}
 
       {showChoices && data.menu ? (
         <Card style={styles.countdown}>
@@ -148,7 +167,7 @@ export default function ClientMenuScreen() {
               {editable ? formatCountdown(left) : '--:--:--'}
             </Text>
             <Text style={styles.timerLabel}>
-              {state === 'normal' ? `avant ${formatHour(data.menu.deadline_time)} · la table est ouverte` : state === 'en_retard' ? 'avant le verrouillage de 20h00' : state === 'annule' ? 'annulé' : 'en cuisine'}
+              {state === 'normal' ? `avant ${formatHour(data.menu.deadline_time)} · la table est ouverte` : state === 'en_retard' ? 'avant le verrouillage de 20h00' : state === 'annule' ? 'annulé' : 'commande close'}
             </Text>
           </View>
         </Card>
@@ -172,7 +191,13 @@ export default function ClientMenuScreen() {
         <Banner text={`Ton abonnement commence le ${formatLocalDate(data.subscription.start_date)}. Reviens ce jour-là, on t’attend à table.`} title="Encore un peu de patience" tone="info" />
       ) : null}
       {state === 'aucun_menu' ? (
-        <Banner text="L’administratrice n’a pas encore publié le menu du jour. Reviens un peu plus tard." title="Pas encore de menu" tone="info" />
+        <Banner
+          text={data.next_menu_date
+            ? `Le prochain menu est celui de ${formatDayMonth(data.next_menu_date)} : tu le choisis ${formatDayMonth(dayBefore(data.next_menu_date))}, avant 20h00.`
+            : 'L’administratrice n’a pas encore publié le menu de demain. Reviens un peu plus tard.'}
+          title="Pas de menu demain"
+          tone="info"
+        />
       ) : null}
       {notice ? <Banner text={notice.text} title={notice.title} tone={notice.tone} /> : null}
 
@@ -186,13 +211,19 @@ export default function ClientMenuScreen() {
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>{CATEGORY_TITLE[category]}</Text>
                   <Text style={styles.sectionTag}>
-                    {off ? 'pas aujourd’hui' : !editable ? (state === 'defaut' ? 'choisi pour toi' : 'en cuisine') : picks[category] ? 'choisi' : 'à toi de choisir'}
+                    {off ? 'pas demain' : !editable ? (state === 'defaut' ? 'choisi pour toi' : 'noté') : picks[category] ? 'choisi' : 'à toi de choisir'}
                   </Text>
                 </View>
                 {off ? (
-                  <Text style={styles.offNote}>
-                    {data.subscription.plan_name ? `Ta ${data.subscription.plan_name} ne comprend pas de viande aujourd’hui.` : 'Pas de viande au menu aujourd’hui.'}
-                  </Text>
+                  <>
+                    <Text style={styles.offNote}>
+                      {data.subscription.plan_name ? `Ta ${data.subscription.plan_name} ne comprend pas de viande demain.` : 'Pas de viande au menu demain.'}
+                    </Text>
+                    <View style={styles.upsell}>
+                      <Ionicons color={colors.muted} name="lock-closed-outline" size={16} />
+                      <Text style={styles.upsellText}>Viande incluse en Formule 2</Text>
+                    </View>
+                  </>
                 ) : (
                   list.map((option) => (
                     <OptionRow
@@ -247,16 +278,34 @@ export default function ClientMenuScreen() {
 
       <ConfirmModal
         cancelLabel="Garder mon repas"
-        confirmLabel="Oui, pas de repas aujourd’hui"
+        confirmLabel="Oui, pas de repas demain"
         danger
         loading={cancel.isPending}
-        message="Tu ne seras pas livré aujourd’hui. Tu peux changer d’avis jusqu’à 20h00."
+        message="Tu ne seras pas livré demain. Tu peux changer d’avis jusqu’à 20h00 ce soir."
         onCancel={() => setConfirmCancel(false)}
         onConfirm={() => data.menu && cancel.mutate(data.menu.id)}
         title="Annuler ton repas ?"
         visible={confirmCancel}
       />
     </Screen>
+  );
+}
+
+function TodayMealCard({ meal }: { meal: TodayMeal }) {
+  const status = meal.cancelled ? 'annulé' : DELIVERY_LABEL[meal.delivery_status];
+  const lines = [meal.plat, meal.accompagnement, meal.viande].filter(Boolean);
+  return (
+    <Card style={styles.today}>
+      <View style={styles.todayHead}>
+        <Text style={styles.todayTitle}>Ton repas d’aujourd’hui</Text>
+        <Text style={styles.todayStatus}>{status}</Text>
+      </View>
+      {meal.cancelled ? (
+        <Text style={styles.todayText}>Tu n’es pas livré aujourd’hui.</Text>
+      ) : (
+        <Text style={styles.todayText}>{lines.length ? lines.join(' · ') : 'En cours de préparation'}{meal.is_default ? ' (choisi pour toi)' : ''}</Text>
+      )}
+    </Card>
   );
 }
 
@@ -346,6 +395,13 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
   sectionTitle: { color: colors.primaryDark, fontSize: 18, fontWeight: '900' },
   sectionTag: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+  today: { gap: spacing.xs },
+  todayHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: spacing.sm },
+  todayTitle: { color: colors.primaryDark, fontSize: 15, fontWeight: '900' },
+  todayStatus: { color: colors.accent, fontSize: 13, fontWeight: '800' },
+  todayText: { color: colors.text, fontSize: 14, lineHeight: 20 },
+  upsell: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, opacity: 0.8 },
+  upsellText: { color: colors.muted, fontSize: 13, fontStyle: 'italic' },
   offNote: { color: colors.muted, fontSize: 14, lineHeight: 21 },
   option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, minHeight: 60, backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   optionSelected: { backgroundColor: colors.primarySoft, borderColor: colors.primary },

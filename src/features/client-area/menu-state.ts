@@ -9,6 +9,7 @@ export type ClientMenuState =
   | 'non_commence'
   | 'expire'
   | 'inactif'
+  | 'premier_jour'
   | 'annule'
   | 'defaut'
   | 'verrouille'
@@ -25,6 +26,8 @@ export function deriveMenuState(menu: TodayMenu, resuming = false): ClientMenuSt
   if (subscription === 'non_commence') return 'non_commence';
   if (subscription === 'suspendu' || subscription === 'annule' || subscription === 'aucun') return 'inactif';
   if (menu.menu_status === 'aucun_menu') return 'aucun_menu';
+  // L'abonnement commence demain : on ne commande pas la veille du premier jour, le repas est attribué à 20h
+  if (menu.first_day_default && menu.menu_status !== 'verrouille' && menu.order?.status !== 'confirmed') return 'premier_jour';
 
   const order = menu.order;
   if (order?.status === 'cancelled' && !(resuming && menu.menu_status !== 'verrouille')) return 'annule';
@@ -35,13 +38,14 @@ export function deriveMenuState(menu: TodayMenu, resuming = false): ClientMenuSt
 export const HEADLINES: Record<ClientMenuState, string> = {
   normal: 'Fais-toi plaisir.',
   en_retard: 'Encore un instant.',
-  verrouille: 'Ton repas se prépare.',
+  verrouille: 'C’est noté pour demain.',
   defaut: 'On a choisi pour toi.',
-  annule: 'Pas de repas ce jour.',
+  annule: 'Pas de repas demain.',
   expire: 'À très bientôt.',
   non_commence: 'On t’attend à table.',
   inactif: 'Ton abonnement est en pause.',
-  aucun_menu: 'Le menu arrive bientôt.'
+  aucun_menu: 'Pas de repas demain.',
+  premier_jour: 'Bienvenue à table.'
 };
 
 /** Le client peut-il encore choisir ou modifier son repas ? */
@@ -70,7 +74,8 @@ export function kinshasaClock(instantMs: number): { date: string; seconds: numbe
 export function secondsLeft(menu: TodayMenu, state: ClientMenuState, nowMs: number, serverOffsetMs: number): number {
   if (!menu.menu) return 0;
   const clock = kinshasaClock(nowMs + serverOffsetMs);
-  if (clock.date !== menu.date) return 0;
+  // Le choix et le verrouillage de 20h ont lieu la veille du repas (jour de commande)
+  if (clock.date !== (menu.menu.lock_date ?? menu.date)) return 0;
   const target = timeToSeconds(state === 'normal' ? menu.menu.deadline_time : menu.menu.lock_time);
   return Math.max(target - clock.seconds, 0);
 }
@@ -105,7 +110,7 @@ export function picksFromOrder(menu: TodayMenu): Picks {
   };
 }
 
-/** Catégories à choisir aujourd'hui (la viande dépend de la formule et du jour) */
+/** Catégories à choisir pour le repas proposé (la viande dépend de la formule et du jour) */
 export function requiredCategories(menu: TodayMenu): ('plat' | 'accompagnement' | 'viande')[] {
   const hasMeat = menu.meat_allowed_today && (menu.menu?.options.some((option) => option.category === 'viande') ?? false);
   return hasMeat ? ['plat', 'accompagnement', 'viande'] : ['plat', 'accompagnement'];

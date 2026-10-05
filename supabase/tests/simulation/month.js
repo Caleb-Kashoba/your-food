@@ -53,19 +53,24 @@ const LOCK = 20 * 3600;
     if (s.status === 'suspended' && s.start <= d && s.end >= d) return 'suspendu';
     if (s.start > d) return 'non_commence';
     if (s.end < d) return 'expire';
-    return workingDaysBetween(d > s.start ? d : s.start, s.end) <= 10 ? 'bientot_expire' : 'actif';
+    const total = workingDaysBetween(s.start, s.end);
+    return workingDaysBetween(d > s.start ? d : s.start, s.end) <= (total <= 5 ? 2 : 5) ? 'bientot_expire' : 'actif';
   }
   function currentSub(c, d) {
     return c.subs.filter((s) => s.status === 'active' && s.start <= d && s.end >= d).sort((a, b) => (a.start < b.start ? 1 : -1))[0];
   }
-  /** Le client peut-il commander ou annuler maintenant ? */
+  /**
+   * Le client peut-il commander ou annuler maintenant ? On commande LA VEILLE : `d` = jour de commande, `S` = jour du repas (demain).
+   * Le menu de S se verrouille à 20 h le jour d ; un abonnement qui commence demain ne permet pas de commander (premier repas par défaut).
+   */
   function canOrder(c, d, time) {
-    const st = modelState(c, d);
+    const S = addDays(d, 1);
+    const st = modelState(c, S);
     if (!['actif', 'bientot_expire'].includes(st)) return false;
-    const s = currentSub(c, d);
-    if (!s || (s.blockedUntil && s.blockedUntil >= d)) return false;
-    const menu = M.menus[d];
-    return Boolean(menu && !menu.locked && isWeekday(d) && toSec(time) < LOCK);
+    const s = currentSub(c, S);
+    if (!s || s.start > d || (s.blockedUntil && s.blockedUntil >= S)) return false;
+    const menu = M.menus[S];
+    return Boolean(menu && !menu.locked && isWeekday(S) && toSec(time) < LOCK);
   }
 
   // ───────────────────────── Aides ─────────────────────────
@@ -98,11 +103,13 @@ const LOCK = 20 * 3600;
     if (!res.ok) { J.violation('menu_client', sim.now.day, `${c.first} ${c.last} : ${res.msg}`); return null; }
     const m = res.value;
     const d = sim.now.day;
-    const expected = modelState(c, d);
+    const S = addDays(d, 1);
+    if (m.date !== S) J.violation('jour_du_menu', d, `le client doit voir le menu de demain (${S}), pas ${m.date}`);
+    const expected = modelState(c, S);
     if (m.subscription.state !== expected) J.violation('etat_abonnement', d, `${c.first} ${c.last} : attendu ${expected}, constaté ${m.subscription.state}`);
-    const sub = currentSub(c, d);
-    if (sub && (m.meat_allowed_today !== meatAllowed(sub.plan, d))) J.violation('viande_jour', d, `${c.first} ${c.last} (${sub.plan}) : attendu ${meatAllowed(sub.plan, d)}, constaté ${m.meat_allowed_today}`);
-    const published = Boolean(M.menus[d]);
+    const sub = currentSub(c, S);
+    if (sub && (m.meat_allowed_today !== meatAllowed(sub.plan, S))) J.violation('viande_jour', d, `${c.first} ${c.last} (${sub.plan}) : attendu ${meatAllowed(sub.plan, S)}, constaté ${m.meat_allowed_today}`);
+    const published = Boolean(M.menus[S]);
     if (published !== Boolean(m.menu)) J.violation('menu_publie', d, `modèle ${published}, système ${Boolean(m.menu)}`);
     J.count('lectures_menu');
     return m;
@@ -136,12 +143,13 @@ const LOCK = 20 * 3600;
   /** Événements d'un jour pour tous les clients selon leur profil */
   function clientEvents(d) {
     const ev = [];
-    if (!isWeekday(d)) {
-      // Week-end : quelques clients essaient quand même (aucun menu : tout doit être refusé)
+    const S = addDays(d, 1);
+    if (!isWeekday(S)) {
+      // Vendredi et samedi : demain est un week-end, pas de menu : quelques clients essaient quand même, tout doit être refusé
       for (const c of r.shuffle(byUid()).slice(0, 3)) ev.push([r.int(9, 18) * 3600, `${c.first} essaie le week-end`, () => order(c, 'week-end')]);
       return ev;
     }
-    if (M.ghostDays.has(d)) {
+    if (M.ghostDays.has(S)) {
       for (const c of r.shuffle(byUid()).slice(0, 6)) ev.push([r.int(9, 17) * 3600, 'lecture seule', () => viewMenu(c)]);
       return ev;
     }
@@ -175,7 +183,8 @@ const LOCK = 20 * 3600;
     if (!m || !m.menu) return;
     const opts = m.menu.options;
     const ids = (cat) => opts.filter((o) => o.category === cat).map((o) => o.option_id);
-    const tomorrow = M.menus[addDays(d, 1)] ? (await sim.one('select id from public.daily_menus where menu_date = $1', [addDays(d, 1)])) : null;
+    const dayAfter = M.menus[addDays(d, 2)] ? (await sim.one('select id from public.daily_menus where menu_date = $1', [addDays(d, 2)])) : null;
+    const todayMenu = M.menus[d] ? (await sim.one('select id from public.daily_menus where menu_date = $1', [d])) : null;
     const tries = [
       ['option de la mauvaise catégorie', () => sim.rpc(c.uid, 'submit_my_order', [m.menu.id, ids('accompagnement')[0], ids('accompagnement')[0], null])],
       ['viande à la place du plat', () => sim.rpc(c.uid, 'submit_my_order', [m.menu.id, ids('viande')[0], ids('accompagnement')[0], null])],
@@ -186,7 +195,8 @@ const LOCK = 20 * 3600;
       ['publication d\'un menu', () => sim.rpc(c.uid, 'publish_menu', [addDays(d, 30), [], '13:00'])],
       ['émission d\'un code d\'accès', () => sim.rpc(c.uid, 'issue_customer_access_code', [clients[0].id, 'reset'])]
     ];
-    if (tomorrow) tries.push(['commande sur le menu de demain', () => sim.rpc(c.uid, 'submit_my_order', [tomorrow.id, ids('plat')[0] || null, ids('accompagnement')[0] || null, null])]);
+    if (dayAfter) tries.push(['commande sur le menu d\'après-demain (trop tôt)', () => sim.rpc(c.uid, 'submit_my_order', [dayAfter.id, ids('plat')[0] || null, ids('accompagnement')[0] || null, null])]);
+    if (todayMenu) tries.push(['commande sur le menu d\'aujourd\'hui (verrouillé hier)', () => sim.rpc(c.uid, 'submit_my_order', [todayMenu.id, ids('plat')[0] || null, ids('accompagnement')[0] || null, null])]);
     const [label, fn] = r.pick(tries);
     const res = await fn();
     J.count('attaques');
@@ -537,7 +547,7 @@ const LOCK = 20 * 3600;
     C('M7c', 'menus', 'modifier un jour sans menu (jour férié)', 'refusé', noDay.ok ? 'accepté' : noDay.msg, expectRejected(noDay, /Aucun menu publié/));
   });
   at('2026-10-06', '12:00:00', 'menus : retirer un plat déjà choisi', async () => {
-    const d = '2026-10-06';
+    const d = '2026-10-07'; // le menu de demain : commandé ce matin, verrouillé ce soir à 20 h
     const cur = M.menus[d];
     const chosen = await sim.q(
       `select distinct c.name from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id
@@ -558,10 +568,10 @@ const LOCK = 20 * 3600;
   });
 
   at('2026-10-08', '15:00:00', 'menus : verrouillage manuel', async () => {
-    const d = '2026-10-08';
+    const d = '2026-10-09'; // le menu de demain, verrouillé à 15 h au lieu de 20 h
     const snap = await preLockSnapshot(d);
     const res = await sim.rpc(admin, 'lock_menu_now', [d]);
-    C('M12', 'menus', 'verrouillage manuel à 15h : repas par défaut attribués', 'accepté', res.ok ? `${res.value} défauts` : res.msg, res.ok && snap && res.value === snap.waiting);
+    C('M12', 'menus', 'verrouillage manuel à 15h (le menu de demain) : repas par défaut attribués', 'accepté', res.ok ? `${res.value} défauts` : res.msg, res.ok && snap && res.value === snap.waiting);
     if (res.ok) { M.menus[d].locked = true; M.manualLocks.add(d); await checkDay(d, snap, res.value); }
     const again = await sim.rpc(admin, 'lock_menu_now', [d]);
     C('M12b', 'menus', 'second verrouillage : sans effet', '0', again.ok ? String(again.value) : again.msg, again.ok && again.value === 0);
@@ -584,7 +594,7 @@ const LOCK = 20 * 3600;
     }
   });
   at('2026-10-13', '10:00:00', 'carte : suppressions', async () => {
-    const onMenu = Object.entries(M.menus).filter(([d, m]) => d >= '2026-10-13' && !m.locked && m.items.includes('Haricots')).map(([d]) => d).sort()[0];
+    const onMenu = Object.entries(M.menus).filter(([d, m]) => d > '2026-10-13' && !m.locked && m.items.includes('Haricots')).map(([d]) => d).sort()[0];
     if (onMenu) {
       const res = await sim.rpc(admin, 'delete_catalog_item', [items['Haricots'].id]);
       C('M14', 'carte', 'supprimer un plat proposé sur un menu non verrouillé', `refusé (PLAT_SUR_MENU_OUVERT, ${onMenu})`, res.ok ? 'accepté' : `${res.msg} ${res.detail || ''}`, expectRejected(res, /PLAT_SUR_MENU_OUVERT/) && (res.detail || '').startsWith(M.menus && onMenu ? onMenu.slice(0, 4) : ''));
@@ -774,21 +784,22 @@ const LOCK = 20 * 3600;
     C('B1', 'limite 20h', 'commande à 19:59:59', 'acceptée', res.ok ? 'ok' : res.msg, res.ok);
   });
   at('2026-10-07', '20:00:00', 'limite 20h : 20:00:00', async () => {
-    const c = pickClient((x) => x.uid && modelState(x, '2026-10-07') === 'actif');
+    const c = pickClient((x) => x.uid && modelState(x, '2026-10-08') === 'actif' && currentSub(x, '2026-10-08') && currentSub(x, '2026-10-08').start <= '2026-10-07');
     const m = await viewMenu(c);
     const opts = m.menu.options;
     const res = await sim.rpc(c.uid, 'submit_my_order', [m.menu.id, opts.find((o) => o.category === 'plat').option_id, opts.find((o) => o.category === 'accompagnement').option_id, null]);
     C('B2', 'limite 20h', 'commande à 20:00:00 pile', 'refusée', res.ok ? 'acceptée' : res.msg, expectRejected(res, /verrouillé/));
     const can = await sim.rpc(c.uid, 'cancel_my_order', [m.menu.id]);
     C('B2b', 'limite 20h', 'annulation à 20:00:00 pile', 'refusée', can.ok ? 'acceptée' : can.msg, expectRejected(can, /verrouillé/));
-    const pub = await sim.rpc(admin, 'publish_menu', ['2026-10-07', itemIds(pickSet()), '13:00']);
-    C('B3', 'limite 20h', 'publier à nouveau le menu du jour après 20h', 'refusé', pub.ok ? 'accepté' : pub.msg, !pub.ok);
+    const pub = await sim.rpc(admin, 'publish_menu', ['2026-10-08', itemIds(pickSet()), '13:00']);
+    C('B3', 'limite 20h', 'publier à nouveau le menu de demain après 20h', 'refusé', pub.ok ? 'accepté' : pub.msg, !pub.ok);
   });
 
   // —— Concurrence
   at('2026-10-21', '15:00:00', 'concurrence : 20 commandes pendant un verrouillage', async () => {
-    const d = '2026-10-21';
-    const list = r.shuffle(byUid().filter((x) => canOrder(x, d, '15:00:00'))).slice(0, 20);
+    const orderDay = '2026-10-21';
+    const d = addDays(orderDay, 1); // le menu du 22, commandé le 21 (la veille)
+    const list = r.shuffle(byUid().filter((x) => canOrder(x, orderDay, '15:00:00'))).slice(0, 20);
     const snapBefore = await preLockSnapshot(d);
     const conns = await Promise.all(list.map(() => sim.newConnection()));
     const lockConn = await sim.newConnection();
@@ -810,7 +821,7 @@ const LOCK = 20 * 3600;
     void snapBefore;
   });
   at('2026-10-22', '15:00:00', 'concurrence : double verrouillage', async () => {
-    const d = '2026-10-22';
+    const d = '2026-10-23'; // le menu de demain
     const snap = await preLockSnapshot(d);
     const conns = await Promise.all([0, 1, 2, 3, 4].map(() => sim.newConnection()));
     const res = await Promise.all(conns.map((c) => sim.rpc(admin, 'lock_menu_now', [d], { db: c })));
@@ -821,8 +832,9 @@ const LOCK = 20 * 3600;
     await checkDay(d, snap, total);
   });
   at('2026-10-27', '10:00:00', 'concurrence : double commande du même client', async () => {
-    const d = '2026-10-27';
-    const c = pickClient((x) => x.uid && canOrder(x, d, '10:00:00'));
+    const orderDay = '2026-10-27';
+    const d = addDays(orderDay, 1); // le menu du 28, commandé le 27
+    const c = pickClient((x) => x.uid && canOrder(x, orderDay, '10:00:00'));
     const m = await viewMenu(c);
     const p = choose(m, c);
     const conns = await Promise.all([0, 1, 2, 3].map(() => sim.newConnection()));
@@ -833,7 +845,7 @@ const LOCK = 20 * 3600;
   });
 
   // —— Jour férié : aucun menu
-  at('2026-10-14', '20:30:00', 'jour férié', async () => {
+  at('2026-10-13', '20:30:00', 'jour férié (14 octobre) : vu la veille', async () => {
     const orders = (await sim.one(`select count(*)::int as n from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = '2026-10-14'`)).n;
     const del = (await sim.one(`select count(*)::int as n from public.deliveries where delivery_date = '2026-10-14' and status <> 'scheduled' and status <> 'cancelled'`)).n;
     C('O28', 'jours fériés', 'jour sans menu : aucune commande ni repas par défaut, livraisons laissées telles quelles', '0 commande', `${orders} commandes, ${del} livraisons modifiées`, orders === 0);
@@ -841,7 +853,7 @@ const LOCK = 20 * 3600;
     const m = await sim.rpc(c.uid, 'my_today_menu', []);
     C('O28b', 'jours fériés', 'le client voit « aucun menu » ce jour-là', 'aucun_menu', m.ok ? m.value.menu_status : m.msg, m.ok && m.value.menu_status === 'aucun_menu');
   });
-  at('2026-10-16', '20:30:00', 'jour sans aucun vote', async () => {
+  at('2026-10-15', '20:30:00', 'jour sans aucun vote (16 octobre) : contrôlé après le verrouillage de la veille', async () => {
     const d = '2026-10-16';
     const votes = (await sim.one(`select count(*)::int as n from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = $1 and not o.is_default and o.status = 'confirmed'`, [d])).n;
     C('O27', 'repas par défaut', 'aucun client n\'a voté : repas par défaut = premier de chaque catégorie par ordre alphabétique', '0 vote', `${votes} vote(s)`, votes === 0);
@@ -877,11 +889,22 @@ const LOCK = 20 * 3600;
       const res = await sim.rpc(canc.uid, 'submit_my_review', [canc.id, 3, null]);
       C('R4', 'avis', 'noter un repas annulé', 'refusé', res.ok ? 'accepté' : res.msg, expectRejected(res, /annulé/));
     }
+  });
+  at('2026-10-08', '12:00:00', 'avis : avant que le repas soit servi', async () => {
     const open = await sim.one(`select o.id, c.auth_user_id as uid from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id join public.customers c on c.id = o.customer_id
-      where dm.menu_date = '2026-10-09' and c.auth_user_id is not null limit 1`);
+      where dm.menu_date = '2026-10-09' and o.status = 'confirmed' and c.auth_user_id is not null limit 1`);
     if (open) {
       const res = await sim.rpc(open.uid, 'submit_my_review', [open.id, 5, null]);
-      C('R6', 'avis', 'noter le repas du jour avant qu\'il soit servi (menu non verrouillé)', 'refusé', res.ok ? 'accepté' : res.msg, expectRejected(res, /une fois le repas servi/));
+      C('R6', 'avis', 'noter le repas de demain avant qu\'il soit servi', 'refusé', res.ok ? 'accepté' : res.msg, expectRejected(res, /une fois le repas servi/));
+    }
+  });
+  at('2026-10-09', '10:00:00', 'avis : le jour du repas', async () => {
+    const served = await sim.one(`select o.id, c.auth_user_id as uid from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id join public.customers c on c.id = o.customer_id
+      left join public.meal_reviews r on r.order_id = o.id
+      where dm.menu_date = '2026-10-09' and o.status = 'confirmed' and c.auth_user_id is not null and r.id is null limit 1`);
+    if (served) {
+      const res = await sim.rpc(served.uid, 'submit_my_review', [served.id, 5, 'Bon']);
+      C('R6b', 'avis', 'noter le repas le jour même (menu verrouillé la veille, repas servi)', 'accepté', res.ok ? 'accepté' : res.msg, res.ok);
     }
   });
   at('2026-10-26', '08:30:00', 'avis : lundi, repas du vendredi', async () => {
@@ -940,14 +963,16 @@ const LOCK = 20 * 3600;
     const ev = [...(sched[d] || []), ...clientEvents(d)];
     // tâches fixes du jour
     ev.push([4 * 3600 + 5 * 60, 'alertes (04:05)', () => nightlyAlerts(d)]);
-    if (isWeekday(d) && M.menus[d]) {
-      if (M.lazyDays.has(d)) ev.push([21 * 3600 + 5 * 60, 'verrouillage à la lecture', () => lockAndCheck(d, 'lazy')]);
-      else ev.push([20 * 3600 + 30, 'verrouillage planifié (20:00:30)', () => lockAndCheck(d, 'cron')]);
-      ev.push([20 * 3600 + 10 * 60 + 30, 'contrôle RLS', () => rlsSample(d)]);
-      ev.push([20 * 3600 + 20 * 60, 'cuisine et livraison', () => kitchenAndDelivery(d)]);
-    } else if (isWeekday(d)) {
-      ev.push([20 * 3600 + 30, 'jour sans menu', () => checkDay(d, null, null)]);
+    const S = addDays(d, 1); // on commande la veille : à 20 h, le menu de DEMAIN est verrouillé
+    if (isWeekday(S) && M.menus[S]) {
+      if (M.lazyDays.has(S)) ev.push([21 * 3600 + 5 * 60, 'verrouillage à la lecture', () => lockAndCheck(S, 'lazy')]);
+      else ev.push([20 * 3600 + 30, 'verrouillage planifié (20:00:30)', () => lockAndCheck(S, 'cron')]);
+      ev.push([20 * 3600 + 10 * 60 + 30, 'contrôle RLS', () => rlsSample(S)]);
+    } else if (isWeekday(S)) {
+      ev.push([20 * 3600 + 30, 'jour sans menu', () => checkDay(S, null, null)]);
     }
+    // la cuisine prépare et livre le repas d'AUJOURD'HUI (commandé hier)
+    if (isWeekday(d) && M.menus[d]) ev.push([20 * 3600 + 20 * 60, 'cuisine et livraison', () => kitchenAndDelivery(d)]);
     ev.push([23 * 3600, 'avis de la veille', async () => { if (r.chance(1)) await reviewsOf(d); }]);
     ev.sort((a, b) => a[0] - b[0]);
     for (const [sec, label, fn] of ev) {
