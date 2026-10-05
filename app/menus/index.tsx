@@ -9,7 +9,6 @@ import { Screen } from '@/components/ui/Screen';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { listMenuWeek, type WeekDay } from '@/features/menus/menus.service';
-import { formatHour } from '@/features/client-area/menu-state';
 import { addLocalDays, capitalizeFirst, formatDayMonth, localDateKey, mondayOf } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { colors, radii, spacing } from '@/theme/colors';
@@ -60,7 +59,7 @@ function DayCard({ day, canWrite, past, onEdit, onFollow }: { day: WeekDay; canW
       <View style={styles.header}>
         <Text style={styles.day}>{capitalizeFirst(formatDayMonth(day.date))}</Text>
         <View style={[styles.pill, !day.published ? styles.pillIdle : locked ? styles.pillLocked : styles.pillOpen]}>
-          <Text style={styles.pillText}>{!day.published ? 'non publié' : locked ? 'verrouillé' : `ouvert · limite ${formatHour(day.deadline_time ?? '13:00')}`}</Text>
+          <Text style={styles.pillText}>{!day.published ? 'non publié' : locked ? 'verrouillé' : 'ouvert'}</Text>
         </View>
       </View>
 

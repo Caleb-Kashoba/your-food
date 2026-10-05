@@ -1,7 +1,7 @@
--- Mutation : 04-journal-attribue-au-client
+-- Mutation : les repas par défaut sont attribués à la personne qui a déclenché le calcul
 do $m$
-declare src text := pg_get_functiondef('public.lock_due_menus()'::regprocedure);
+declare src text := pg_get_functiondef('public.refresh_default_orders(uuid)'::regprocedure);
 begin
-  if position('''app.audit_system'', ''on''' in src) = 0 then raise exception 'motif introuvable'; end if;
-  execute replace(src, '''app.audit_system'', ''on''', '''app.audit_system'', ''off''');
+  if position('set_config(''app.audit_system'', ''on'', true)' in src) = 0 then raise exception 'motif introuvable'; end if;
+  execute replace(src, 'set_config(''app.audit_system'', ''on'', true)', 'set_config(''app.audit_system'', ''off'', true)');
 end $m$;

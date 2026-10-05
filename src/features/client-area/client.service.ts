@@ -58,7 +58,8 @@ export interface TodayMenu {
   today_meal?: TodayMeal | null;
   /** Quand il n'y a pas de menu demain : le prochain menu publié */
   next_menu_date?: string | null;
-  menu: { id: string; deadline_time: string; lock_time: string; lock_date?: string; options: MenuOption[] } | null;
+  /** `lock_time` : heure limite de commande si elle est réglée, sinon `null` (aucune limite) ; `deadline_time` n'est plus utilisé */
+  menu: { id: string; deadline_time: string | null; lock_time: string | null; lock_date?: string | null; options: MenuOption[] } | null;
   order: ClientOrder | null;
   review_due: { order_id: string; date: string } | null;
   server_now: string;

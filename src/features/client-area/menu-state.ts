@@ -72,11 +72,11 @@ export function kinshasaClock(instantMs: number): { date: string; seconds: numbe
  * `serverOffsetMs` = heure du serveur − heure de l'appareil, pour ne pas dépendre de l'horloge du téléphone.
  */
 export function secondsLeft(menu: TodayMenu, state: ClientMenuState, nowMs: number, serverOffsetMs: number): number {
-  if (!menu.menu) return 0;
+  if (!menu.menu || !menu.menu.lock_time) return 0;
   const clock = kinshasaClock(nowMs + serverOffsetMs);
   // Le choix et le verrouillage de 20h ont lieu la veille du repas (jour de commande)
   if (clock.date !== (menu.menu.lock_date ?? menu.date)) return 0;
-  const target = timeToSeconds(state === 'normal' ? menu.menu.deadline_time : menu.menu.lock_time);
+  const target = timeToSeconds(menu.menu.lock_time);
   return Math.max(target - clock.seconds, 0);
 }
 

@@ -103,28 +103,30 @@ describe('compte à rebours', () => {
     expect(kinshasaClock(Date.parse('2026-10-06T23:30:00Z')).date).toBe('2026-10-07');
   });
 
-  it('compte vers l’heure limite, puis vers 20h00', () => {
+  it('compte vers la limite de commande quand elle est réglée (20h00)', () => {
     const now = Date.parse('2026-10-06T09:00:00Z'); // 10h00 à Kinshasa
-    expect(secondsLeft(menu(), 'normal', now, 0)).toBe(3 * 3600);
-    expect(secondsLeft(menu({ menu_status: 'en_retard' }), 'en_retard', now, 0)).toBe(10 * 3600);
+    expect(secondsLeft(menu(), 'normal', now, 0)).toBe(10 * 3600);
+  });
+
+  it('plus de limite : aucun compte à rebours', () => {
+    const sansLimite = menu({ menu: { ...menu().menu!, deadline_time: null, lock_time: null } });
+    expect(secondsLeft(sansLimite, 'normal', Date.parse('2026-10-06T09:00:00Z'), 0)).toBe(0);
   });
 
   it('corrige l’horloge de l’appareil avec l’heure du serveur', () => {
     const deviceNow = Date.parse('2026-10-06T08:00:00Z'); // téléphone en retard d'une heure
-    expect(secondsLeft(menu(), 'normal', deviceNow, 3600_000)).toBe(3 * 3600);
+    expect(secondsLeft(menu(), 'normal', deviceNow, 3600_000)).toBe(10 * 3600);
   });
 
   it('ne compte pas pour un autre jour ni sous zéro', () => {
     expect(secondsLeft(menu({ date: '2026-10-05' }), 'normal', Date.parse('2026-10-06T09:00:00Z'), 0)).toBe(0);
-    expect(secondsLeft(menu(), 'normal', Date.parse('2026-10-06T14:00:00Z'), 0)).toBe(0);
+    expect(secondsLeft(menu(), 'normal', Date.parse('2026-10-06T20:00:01Z'), 0)).toBe(0);
   });
 
   it('la veille : le compte à rebours court le jour de la commande, pas le jour du repas', () => {
-    // Repas du mardi 6, commandé le lundi 5 jusqu'à 20h : à 09h00 il reste 4 h avant 13h00 et 11 h avant 20h
+    // Repas du mardi 6, limite réglée à 20h le lundi 5 : à 09h00 il reste 11 h
     const veille = menu({ date: '2026-10-06', menu: { ...menu().menu!, lock_date: '2026-10-05' } });
-    const now = Date.parse('2026-10-05T08:00:00Z'); // 09h00 à Kinshasa
-    expect(secondsLeft(veille, 'normal', now, 0)).toBe(4 * 3600);
-    expect(secondsLeft({ ...veille, menu_status: 'en_retard' }, 'en_retard', now, 0)).toBe(11 * 3600);
+    expect(secondsLeft(veille, 'normal', Date.parse('2026-10-05T08:00:00Z'), 0)).toBe(11 * 3600);
     // le jour du repas lui-même, plus rien à compter
     expect(secondsLeft(veille, 'normal', Date.parse('2026-10-06T08:00:00Z'), 0)).toBe(0);
   });

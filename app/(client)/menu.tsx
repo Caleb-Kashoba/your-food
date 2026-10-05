@@ -24,7 +24,6 @@ import {
   HEADLINES,
   deriveMenuState,
   formatCountdown,
-  formatHour,
   isComplete,
   isEditable,
   picksChanged,
@@ -133,7 +132,7 @@ export default function ClientMenuScreen() {
   const options = data.menu?.options ?? [];
   const hasActiveOrder = data.order?.status === 'confirmed';
   const complete = isComplete(data, picks);
-  const unchanged = hasActiveOrder && !picksChanged(data, picks);
+  const unchanged = hasActiveOrder && !data.order?.is_default && !picksChanged(data, picks);
   const left = secondsLeft(data, state, now, data.device_offset_ms);
   const notice = NOTICES[state];
   const showChoices = !['aucun_menu', 'non_commence', 'expire', 'inactif', 'premier_jour'].includes(state);
@@ -159,7 +158,7 @@ export default function ClientMenuScreen() {
 
       {data.today_meal ? <TodayMealCard meal={data.today_meal} /> : null}
 
-      {showChoices && data.menu ? (
+      {showChoices && data.menu && data.menu.lock_time ? (
         <Card style={styles.countdown}>
           <Ionicons color={state === 'en_retard' ? colors.danger : colors.primary} name="time-outline" size={22} />
           <View style={styles.grow}>
@@ -167,7 +166,7 @@ export default function ClientMenuScreen() {
               {editable ? formatCountdown(left) : '--:--:--'}
             </Text>
             <Text style={styles.timerLabel}>
-              {state === 'normal' ? `avant ${formatHour(data.menu.deadline_time)} · la table est ouverte` : state === 'en_retard' ? 'avant le verrouillage de 20h00' : state === 'annule' ? 'annulé' : 'commande close'}
+              {state === 'annule' ? 'annulé' : editable ? 'avant la fin des commandes' : 'commande close'}
             </Text>
           </View>
         </Card>
@@ -198,6 +197,9 @@ export default function ClientMenuScreen() {
           title="Pas de menu demain"
           tone="info"
         />
+      ) : null}
+      {editable && data.order?.is_default ? (
+        <Banner text="On t’a déjà réservé le repas le plus choisi par les autres. Garde-le en le confirmant, ou change-le quand tu veux." title="Choisi pour toi" tone="info" />
       ) : null}
       {notice ? <Banner text={notice.text} title={notice.title} tone={notice.tone} /> : null}
 
@@ -251,7 +253,7 @@ export default function ClientMenuScreen() {
             ) : (
               <AppButton
                 disabled={!complete}
-                label={hasActiveOrder ? 'Modifier mon repas' : 'Confirmer mon repas'}
+                label={hasActiveOrder && !data.order?.is_default ? 'Modifier mon repas' : 'Confirmer mon repas'}
                 loading={order.isPending}
                 onPress={() => order.mutate(data)}
               />
@@ -281,7 +283,7 @@ export default function ClientMenuScreen() {
         confirmLabel="Oui, pas de repas demain"
         danger
         loading={cancel.isPending}
-        message="Tu ne seras pas livré demain. Tu peux changer d’avis jusqu’à 20h00 ce soir."
+        message="Tu ne seras pas livré demain. Tu peux changer d’avis plus tard dans la journée."
         onCancel={() => setConfirmCancel(false)}
         onConfirm={() => data.menu && cancel.mutate(data.menu.id)}
         title="Annuler ton repas ?"

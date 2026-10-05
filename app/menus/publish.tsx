@@ -19,7 +19,8 @@ const CATEGORIES: { value: MealCategory; label: string }[] = [
   { value: 'accompagnement', label: 'Accompagnements' },
   { value: 'viande', label: 'Viandes' }
 ];
-const HOURS = ['11', '12', '13', '14', '15', '16', '17', '18', '19'].map((hour) => ({ value: `${hour}:00`, label: `${hour}h00` }));
+// Plus d'heure limite pour le lancement : la valeur envoyée à la base est ignorée (la limite se réglera plus tard)
+const NO_DEADLINE = '13:00';
 
 /**
  * Publication d'un menu (un jour, ou le même menu sur plusieurs jours ouvrés) ou modification d'un menu à venir.
@@ -33,7 +34,6 @@ export default function PublishMenuScreen() {
   const [days, setDays] = useState('1');
   // Choix de l'utilisatrice ; tant qu'elle n'a rien touché, on affiche ceux du menu existant
   const [selected, setSelected] = useState<Set<string> | null>(null);
-  const [deadline, setDeadline] = useState<string | null>(null);
   const [category, setCategory] = useState<MealCategory>('plat');
   const [error, setError] = useState<string | null>(null);
 
@@ -42,21 +42,20 @@ export default function PublishMenuScreen() {
 
   const existing = day.data?.published ? day.data : null;
   const chosen = selected ?? new Set(existing?.options.map((option) => option.item_id) ?? []);
-  const effectiveDeadline = deadline ?? existing?.deadline_time?.slice(0, 5) ?? '13:00';
   const count = Math.max(1, Number.parseInt(days, 10) || 1);
 
   const save = useMutation({
     mutationFn: async () => {
       const itemIds = [...chosen];
       if (existing) {
-        await updateMenu(date, { itemIds, deadline: effectiveDeadline });
+        await updateMenu(date, { itemIds });
         return 'Menu modifié.';
       }
       if (count > 1) {
-        const result = await publishMenus(date, count, itemIds, effectiveDeadline);
+        const result = await publishMenus(date, count, itemIds, NO_DEADLINE);
         return `${result.created.length} menu${result.created.length > 1 ? 's' : ''} publié${result.created.length > 1 ? 's' : ''}${result.ignored.length > 0 ? ` (${result.ignored.length} jour${result.ignored.length > 1 ? 's' : ''} déjà publié${result.ignored.length > 1 ? 's' : ''}, ignoré${result.ignored.length > 1 ? 's' : ''})` : ''}.`;
       }
-      await publishMenu(date, itemIds, effectiveDeadline);
+      await publishMenu(date, itemIds, NO_DEADLINE);
       return 'Menu publié.';
     },
     onSuccess: async () => {
@@ -88,15 +87,13 @@ export default function PublishMenuScreen() {
     <Screen>
       <Text style={styles.title}>{existing ? 'Modifier le menu' : 'Publier un menu'}</Text>
 
-      <AppInput editable={!existing} label="Jour (AAAA-MM-JJ)" onChangeText={(value) => { setDate(value); setSelected(null); setDeadline(null); }} value={date} />
-      {existing ? <Text style={styles.help}>Un menu existe déjà ce jour : tu peux changer ses plats et son heure limite.</Text> : null}
+      <AppInput editable={!existing} label="Jour (AAAA-MM-JJ)" onChangeText={(value) => { setDate(value); setSelected(null); }} value={date} />
+      {existing ? <Text style={styles.help}>Un menu existe déjà ce jour : tu peux changer ses plats. Les repas par défaut des clients se mettent à jour.</Text> : null}
       {!existing ? (
         <AppInput keyboardType="number-pad" label="Nombre de jours ouvrés (même menu)" onChangeText={setDays} value={days} />
       ) : null}
 
-      <Text style={styles.section}>Heure limite indicative</Text>
-      <Chips onChange={setDeadline} options={HOURS} value={effectiveDeadline} />
-      <Text style={styles.help}>Après cette heure, le client peut encore choisir jusqu’à 20h00. Le menu se verrouille alors tout seul.</Text>
+      <Text style={styles.help}>À la publication, chaque client attendu reçoit un repas par défaut (le plus choisi) ; il peut le changer toute la journée de la veille.</Text>
 
       <Text style={styles.section}>Plats proposés</Text>
       <Chips onChange={setCategory} options={CATEGORIES.map((item) => ({ value: item.value, label: `${item.label} (${countBy(item.value)})` }))} value={category} />

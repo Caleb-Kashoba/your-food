@@ -70,7 +70,7 @@ const LOCK = 20 * 3600;
     const s = currentSub(c, S);
     if (!s || s.start > d || (s.blockedUntil && s.blockedUntil >= S)) return false;
     const menu = M.menus[S];
-    return Boolean(menu && !menu.locked && isWeekday(S) && toSec(time) < LOCK);
+    return Boolean(menu && !menu.locked && isWeekday(S) && toSec(time) < 86400); // plus de limite à 20 h : toute la journée de la veille
   }
 
   // ───────────────────────── Aides ─────────────────────────
@@ -157,7 +157,7 @@ const LOCK = 20 * 3600;
       const t = (h0, h1) => r.int(h0 * 3600, h1 * 3600 - 1);
       switch (c.persona) {
         case 'early': if (r.chance(0.9)) ev.push([t(8, 11), 'commande matinale', () => order(c)]); break;
-        case 'late': ev.push([t(13, 20), 'commande tardive', () => order(c, 'tardive')]); break;
+        case 'late': ev.push([t(13, 24), 'commande tardive', () => order(c, 'tardive')]); break;
         case 'changer':
           ev.push([t(8, 10), 'commande', () => order(c)]);
           ev.push([t(14, 18), 'modification', () => order(c, 'modification')]);
@@ -167,7 +167,7 @@ const LOCK = 20 * 3600;
           ev.push([t(9, 11), 'annulation', () => cancel(c)]);
           if (r.chance(0.7)) ev.push([t(15, 19), 'reprise', () => order(c, 'reprise')]);
           break;
-        case 'lastminute': ev.push([19 * 3600 + 59 * 60 + r.int(30, 59), 'dernière seconde', () => order(c, 'dernière minute')]); break;
+        case 'lastminute': ev.push([23 * 3600 + 59 * 60 + r.int(30, 59), 'dernière seconde', () => order(c, 'dernière minute')]); break;
         case 'sporadic': if (r.chance(0.25)) ev.push([t(8, 12), 'commande occasionnelle', () => order(c)]); break;
         default: if (r.chance(0.1)) ev.push([t(8, 20), 'lecture seule', () => viewMenu(c)]);
       }
@@ -214,7 +214,7 @@ const LOCK = 20 * 3600;
     for (const cat of ['plat', 'accompagnement', 'viande']) {
       const col = { plat: 'plat_option_id', accompagnement: 'accompagnement_option_id', viande: 'viande_option_id' }[cat];
       const rows = await sim.q(
-        `select o.id, c.name, (select count(*) from public.meal_orders mo where mo.status = 'confirmed' and mo.${col} = o.id) as n
+        `select o.id, c.name, (select count(*) from public.meal_orders mo where mo.status = 'confirmed' and not mo.is_default and mo.${col} = o.id) as n
          from public.menu_options o join public.catalog_items c on c.id = o.catalog_item_id
          where o.daily_menu_id = $1 and c.category = $2 order by n desc, c.name asc limit 1`, [m.id, cat]);
       top[cat] = rows[0] ? rows[0].id : null;
@@ -282,6 +282,7 @@ const LOCK = 20 * 3600;
   }
 
   async function lockAndCheck(d, mode) {
+    await sim.one('select public.refresh_open_default_orders() as n'); // la tâche planifiée de chaque minute
     const snap = await preLockSnapshot(d);
     let created = null;
     const t0 = Date.now();
@@ -552,7 +553,7 @@ const LOCK = 20 * 3600;
     const chosen = await sim.q(
       `select distinct c.name from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id
        join public.menu_options mo on mo.id in (o.plat_option_id, o.accompagnement_option_id, o.viande_option_id)
-       join public.catalog_items c on c.id = mo.catalog_item_id where dm.menu_date = $1 and o.status = 'confirmed' and c.category = 'plat'`, [d]);
+       join public.catalog_items c on c.id = mo.catalog_item_id where dm.menu_date = $1 and o.status = 'confirmed' and not o.is_default and c.category = 'plat'`, [d]);
     const platsOnMenu = cur.items.filter((n) => PLATS.includes(n));
     if (chosen.length > 0 && platsOnMenu.length >= 2) {
       const dish = chosen[0].name;
@@ -775,24 +776,25 @@ const LOCK = 20 * 3600;
   });
 
   // —— Cas d'heure limite : dernière seconde / première seconde
-  at('2026-10-07', '19:59:59', 'limite 20h : 19:59:59', async () => {
+  at('2026-10-07', '23:59:59', 'dernière seconde de la veille : 23:59:59', async () => {
     const c = pickClient((x) => x.uid && canOrder(x, '2026-10-07', '19:59:59'));
     if (!c) return;
     const m = await viewMenu(c);
     const p = choose(m, c);
     const res = await sim.rpc(c.uid, 'submit_my_order', [m.menu.id, p.plat, p.acc, p.viande]);
-    C('B1', 'limite 20h', 'commande à 19:59:59', 'acceptée', res.ok ? 'ok' : res.msg, res.ok);
+    C('B1', 'veille', 'commande à 23:59:59 (dernière seconde de la veille)', 'acceptée', res.ok ? 'ok' : res.msg, res.ok);
   });
-  at('2026-10-07', '20:00:00', 'limite 20h : 20:00:00', async () => {
-    const c = pickClient((x) => x.uid && modelState(x, '2026-10-08') === 'actif' && currentSub(x, '2026-10-08') && currentSub(x, '2026-10-08').start <= '2026-10-07');
-    const m = await viewMenu(c);
-    const opts = m.menu.options;
-    const res = await sim.rpc(c.uid, 'submit_my_order', [m.menu.id, opts.find((o) => o.category === 'plat').option_id, opts.find((o) => o.category === 'accompagnement').option_id, null]);
-    C('B2', 'limite 20h', 'commande à 20:00:00 pile', 'refusée', res.ok ? 'acceptée' : res.msg, expectRejected(res, /verrouillé/));
-    const can = await sim.rpc(c.uid, 'cancel_my_order', [m.menu.id]);
-    C('B2b', 'limite 20h', 'annulation à 20:00:00 pile', 'refusée', can.ok ? 'acceptée' : can.msg, expectRejected(can, /verrouillé/));
+  at('2026-10-08', '00:00:00', 'minuit : le repas du 8 n\'est plus à commander', async () => {
+    const c = pickClient((x) => x.uid && modelState(x, '2026-10-08') === 'actif');
+    const menu8 = await sim.one("select id from public.daily_menus where menu_date = '2026-10-08'");
+    const opts = await sim.q("select o.id, ci.category from public.menu_options o join public.catalog_items ci on ci.id = o.catalog_item_id where o.daily_menu_id = $1", [menu8.id]);
+    const of = (cat) => opts.find((x) => x.category === cat).id;
+    const res = await sim.rpc(c.uid, 'submit_my_order', [menu8.id, of('plat'), of('accompagnement'), null]);
+    C('B2', 'veille', 'à minuit, commander le repas du jour (qui se prépare) est refusé : on commande la veille', 'refusée', res.ok ? 'acceptée' : res.msg, expectRejected(res, /repas de demain|verrouillé/));
+    const can = await sim.rpc(c.uid, 'cancel_my_order', [menu8.id]);
+    C('B2b', 'veille', 'à minuit, annuler le repas du jour est refusé', 'refusée', can.ok ? 'acceptée' : can.msg, expectRejected(can, /repas de demain|verrouillé/));
     const pub = await sim.rpc(admin, 'publish_menu', ['2026-10-08', itemIds(pickSet()), '13:00']);
-    C('B3', 'limite 20h', 'publier à nouveau le menu de demain après 20h', 'refusé', pub.ok ? 'accepté' : pub.msg, !pub.ok);
+    C('B3', 'veille', 'republier le menu du jour est refusé', 'refusé', pub.ok ? 'accepté' : pub.msg, !pub.ok);
   });
 
   // —— Concurrence
@@ -828,7 +830,7 @@ const LOCK = 20 * 3600;
     await Promise.all(conns.map((c) => c.end()));
     M.menus[d].locked = true; M.manualLocks.add(d);
     const total = res.filter((x) => x.ok).reduce((s, x) => s + x.value, 0);
-    C('O29', 'concurrence', '5 verrouillages simultanés : repas par défaut créés une seule fois', `${snap.waiting} défauts au total`, `${total} (${res.filter((x) => x.ok).map((x) => x.value).join('+')})`, res.every((x) => x.ok) && total === snap.waiting);
+    C('O29', 'concurrence', '5 verrouillages simultanés : aucun repas par défaut en double, tout est complet', `${snap.waiting} défauts au total`, `${total} (${res.filter((x) => x.ok).map((x) => x.value).join('+')})`, res.every((x) => x.ok) && total === snap.waiting);
     await checkDay(d, snap, total);
   });
   at('2026-10-27', '10:00:00', 'concurrence : double commande du même client', async () => {
@@ -963,13 +965,13 @@ const LOCK = 20 * 3600;
     const ev = [...(sched[d] || []), ...clientEvents(d)];
     // tâches fixes du jour
     ev.push([4 * 3600 + 5 * 60, 'alertes (04:05)', () => nightlyAlerts(d)]);
-    const S = addDays(d, 1); // on commande la veille : à 20 h, le menu de DEMAIN est verrouillé
-    if (isWeekday(S) && M.menus[S]) {
-      if (M.lazyDays.has(S)) ev.push([21 * 3600 + 5 * 60, 'verrouillage à la lecture', () => lockAndCheck(S, 'lazy')]);
-      else ev.push([20 * 3600 + 30, 'verrouillage planifié (20:00:30)', () => lockAndCheck(S, 'cron')]);
-      ev.push([20 * 3600 + 10 * 60 + 30, 'contrôle RLS', () => rlsSample(S)]);
-    } else if (isWeekday(S)) {
-      ev.push([20 * 3600 + 30, 'jour sans menu', () => checkDay(S, null, null)]);
+    // Plus de limite : le menu d'un jour se verrouille au début de CE jour (00:00:30), les clients l'ont commandé la veille
+    if (isWeekday(d) && M.menus[d]) {
+      if (M.lazyDays.has(d)) ev.push([5 * 60, 'verrouillage à la lecture (00:05)', () => lockAndCheck(d, 'lazy')]);
+      else ev.push([30, 'verrouillage planifié (00:00:30)', () => lockAndCheck(d, 'cron')]);
+      ev.push([20 * 3600 + 10 * 60 + 30, 'contrôle RLS', () => rlsSample(d)]);
+    } else if (isWeekday(d)) {
+      ev.push([30, 'jour sans menu', () => checkDay(d, null, null)]);
     }
     // la cuisine prépare et livre le repas d'AUJOURD'HUI (commandé hier)
     if (isWeekday(d) && M.menus[d]) ev.push([20 * 3600 + 20 * 60, 'cuisine et livraison', () => kitchenAndDelivery(d)]);
@@ -1023,7 +1025,8 @@ const LOCK = 20 * 3600;
   // Audit : chaque commande a sa ligne d'audit ; les repas par défaut ne doivent pas être attribués à un client
   const orders = (await sim.one('select count(*)::int as n from public.meal_orders')).n;
   const audited = (await sim.one(`select count(*)::int as n from public.audit_logs where entity_type = 'meal_orders' and action = 'insert'`)).n;
-  C('T4', 'audit', 'chaque commande a une ligne d\'audit de création', `${orders} lignes`, `${audited}`, orders === audited);
+  const auditedDeleted = (await sim.one(`select count(*)::int as n from public.audit_logs where entity_type = 'meal_orders' and action = 'delete'`)).n;
+  C('T4', 'audit', 'chaque commande a une ligne d\'audit de création (moins les repas par défaut retirés d\'un menu modifié)', `${orders} lignes`, `${audited} créations − ${auditedDeleted} suppressions`, orders === audited - auditedDeleted);
   const wrongActor = (await sim.one(
     `select count(*)::int as n from public.audit_logs a join public.meal_orders o on o.id::text = a.entity_id
      where a.entity_type = 'meal_orders' and a.action = 'insert' and o.is_default and a.actor_user_id is not null and not (o.daily_menu_id in (select id from public.daily_menus where menu_date::text = any ($1)))`, [[...M.manualLocks]])).n;

@@ -10,7 +10,6 @@ import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Screen } from '@/components/ui/Screen';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { formatHour } from '@/features/client-area/menu-state';
 import { lockMenuNow } from '@/features/menus/menus.service';
 import { getLive, setPrepared, type LiveRow, type LiveState } from '@/features/orders/orders.service';
 import { StaffOrderSheet } from '@/features/orders/StaffOrderSheet';
@@ -83,7 +82,7 @@ export default function LiveScreen() {
 
       <Card style={styles.summary}>
         <Text style={styles.status}>
-          {data.menu_status === 'aucun_menu' ? 'Aucun menu publié ce jour' : data.menu_status === 'locked' ? 'Menu verrouillé : liste finale (corrections possibles tant que le bol n’est pas prêt)' : `Menu ouvert · limite ${formatHour(data.deadline_time ?? '13:00')} · verrouillage la veille à 20h00`}
+          {data.menu_status === 'aucun_menu' ? 'Aucun menu publié ce jour' : data.menu_status === 'locked' ? 'Menu verrouillé : liste finale (corrections possibles tant que le bol n’est pas prêt)' : 'Menu ouvert : les clients peuvent encore choisir ou changer leur repas'}
         </Text>
         <View style={styles.counters}>
           <Counter label="Commandes" value={count('commande')} />
@@ -149,7 +148,7 @@ export default function LiveScreen() {
         cancelLabel="Annuler"
         confirmLabel="Verrouiller"
         loading={lock.isPending}
-        message="Les clients qui n’ont ni choisi ni annulé recevront les plats les plus demandés. Cette action est définitive."
+        message="Plus aucun client ne pourra changer son repas : les repas par défaut deviennent définitifs. Cette action est définitive."
         onCancel={() => setConfirmLock(false)}
         onConfirm={() => lock.mutate(data.date)}
         title="Verrouiller ce menu ?"

@@ -1,5 +1,6 @@
 'use strict';
 /**
+ * Calendrier « la veille », sans limite de commande, avec repas par défaut dès la publication
  * Calendrier « la veille » : on commande le repas de demain jusqu'à 20 h aujourd'hui (le lundi : le dimanche à 20 h),
  * on prépare et on livre le lendemain. Scénario ciblé sur la base locale (voir README.md) :
  *   SIM_DB=fusion_sim node veille.js
@@ -12,6 +13,8 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   await db.connect();
   const J = new Journal();
   const sim = new Sim(db, J);
+  // Essai de sensibilité : SIM_MUTATION=mutations/xx.sql casse volontairement une règle ; ce scénario doit alors échouer
+  if (process.env.SIM_MUTATION) await db.query(require('fs').readFileSync(require('path').resolve(process.env.SIM_MUTATION), 'utf8'));
   const r = rng(77);
   const W = await seed(sim, r, J);
   const { admin, team, items, clients, plans } = W;
@@ -35,6 +38,22 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   const pub = await sim.rpc(admin, 'publish_menus', ['2026-10-05', 5, ids(names), '13:00']);
   C('V0', 'publier la semaine suivante le vendredi', '5 menus', pub.ok ? `${pub.value.created.length}` : pub.msg, pub.ok && pub.value.created.length === 5, '2026-10-02');
 
+  const alphaFirst = async (menuDate, cat) => (await sim.one(
+    `select o.id, c.name from public.menu_options o join public.catalog_items c on c.id = o.catalog_item_id join public.daily_menus dm on dm.id = o.daily_menu_id
+     where dm.menu_date = $1 and c.category = $2 order by c.name asc limit 1`, [menuDate, cat]));
+  const missing = async (menuDate) => (await sim.one(
+    `select count(*)::int n from public.deliveries dl where dl.delivery_date = $1 and dl.status <> 'cancelled'
+     and not exists (select 1 from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = $1 and o.customer_id = dl.customer_id)`, [menuDate])).n;
+  const defaultsCount = async (menuDate) => (await sim.one(
+    `select count(*)::int n from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = $1 and o.is_default and o.status = 'confirmed'`, [menuDate])).n;
+  const miss0 = await missing('2026-10-05');
+  const def0 = await defaultsCount('2026-10-05');
+  const firstPlat = await alphaFirst('2026-10-05', 'plat');
+  const badDefaults = (await sim.one(`select count(*)::int n from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = '2026-10-05' and o.is_default and o.plat_option_id <> $1`, [firstPlat.id])).n;
+  C('V20', 'dès la publication : tous les clients attendus lundi ont un repas par défaut (premier de chaque catégorie, ordre alphabétique)', 'aucun manquant, défauts > 0, tous « ' + firstPlat.name + ' »', `manquants ${miss0}, défauts ${def0}, autres plats ${badDefaults}`, miss0 === 0 && def0 > 0 && badDefaults === 0, '2026-10-02');
+  const sysPub = (await sim.one(`select count(*)::int n from public.audit_logs a join public.meal_orders o on o.id::text = a.entity_id where a.entity_type = 'meal_orders' and o.is_default and a.actor_user_id is not null`)).n;
+  C('V20b', 'créés à la publication, ces repas ne sont attribués à personne dans le journal', '0', String(sysPub), sysPub === 0, '2026-10-02');
+
   // ── Vendredi et samedi : pas de menu à commander (demain est un week-end)
   for (const [day, id] of [['2026-10-02', 'V1'], ['2026-10-03', 'V2']]) {
     await sim.clock(day, '10:00:00');
@@ -49,11 +68,19 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   // ── Dimanche 4 octobre : le lundi se commande le dimanche
   await sim.clock('2026-10-04', '10:00:00');
   const sun = await view(f1);
-  C('V4', 'dimanche : le client voit le menu du lundi 5, état normal, avec le verrouillage du jour', 'date 2026-10-05, normal, lock_date 2026-10-04', `${sun.date}, ${sun.menu_status}, ${sun.menu?.lock_date}`, sun.date === '2026-10-05' && sun.menu_status === 'normal' && sun.menu.lock_date === '2026-10-04', '2026-10-04');
+  C('V4', 'dimanche : le client voit le menu du lundi 5, état normal, sans heure limite ni verrouillage affichés', 'date 2026-10-05, normal, limite aucune', `${sun.date}, ${sun.menu_status}, deadline ${sun.menu?.deadline_time}, verrouillage ${sun.menu?.lock_time}`, sun.date === '2026-10-05' && sun.menu_status === 'normal' && sun.menu.deadline_time === null && sun.menu.lock_time === null, '2026-10-04');
+  C('V4c', 'le client voit déjà un repas par défaut (premier plat…) avant de choisir', 'ordre par défaut', sun.order ? (sun.order.is_default ? 'ordre par défaut' : 'choisi') : 'aucun', Boolean(sun.order && sun.order.is_default), '2026-10-04');
   C('V4b', 'lundi = Formule 1 : viande incluse', 'oui', String(sun.meat_allowed_today), sun.meat_allowed_today === true, '2026-10-04');
   const ok1 = await order(f1, sun, true);
   const ok2 = await order(f2, sun, true);
   C('V5', 'dimanche : commande du lundi acceptée', 'acceptée', ok1.ok && ok2.ok ? 'acceptée' : (ok1.msg || ok2.msg), ok1.ok && ok2.ok, '2026-10-04');
+
+  const secondPlat = sun.menu.options.filter((o) => o.category === 'plat')[1].option_id;
+  for (const c of [a5[3], a5[4], a5[5]]) {
+    await sim.rpc(c.uid, 'submit_my_order', [sun.menu.id, secondPlat, pick(sun, 'accompagnement'), pick(sun, 'viande')]);
+  }
+  const notSecond = (await sim.one(`select count(*)::int n from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = '2026-10-05' and o.is_default and o.plat_option_id <> $1`, [secondPlat])).n;
+  C('V21', 'les repas par défaut suivent les choix : 3 clients choisissent le 2e plat → tous les défauts passent au 2e plat', '0 défaut sur un autre plat', String(notSecond), notSecond === 0 && (await defaultsCount('2026-10-05')) > 0, '2026-10-04');
 
   // Le client dont l'abonnement commence lundi ne commande pas son premier repas
   const first = g.find((c) => c.subs[0].start === '2026-10-05');
@@ -71,18 +98,26 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   await sim.clock('2026-10-04', '20:00:00');
   const closed = await order(a5[2], sun, a5[2].plan === 'F2');
   const closedCancel = await sim.rpc(a5[2].uid, 'cancel_my_order', [sun.menu.id]);
-  C('V8', 'dimanche 20:00:00 : commande et annulation refusées', 'refusées', `${closed.ok ? 'acceptée' : 'refusée'} / ${closedCancel.ok ? 'acceptée' : 'refusée'}`, rejected(closed, /verrouillé/) && rejected(closedCancel, /verrouillé/), '2026-10-04');
+  C('V8', 'dimanche 20:00:00 : plus de limite, commande et annulation encore acceptées', 'acceptées', `${closed.ok ? 'acceptée' : 'refusée'} / ${closedCancel.ok ? 'acceptée' : 'refusée'}`, closed.ok && closedCancel.ok, '2026-10-04');
+  await sim.clock('2026-10-04', '23:59:59');
+  const lastSecond = await order(a5[2], sun, a5[2].plan === 'F2');
+  C('V8b', 'dimanche 23:59:59 : dernière seconde de la veille, acceptée', 'acceptée', lastSecond.ok ? 'acceptée' : lastSecond.msg, lastSecond.ok, '2026-10-04');
+  await sim.clock('2026-10-05', '00:00:00');
+  const nextDay = await order(a5[2], sun, a5[2].plan === 'F2');
+  C('V8c', 'lundi 00:00:00 : le repas de lundi n\'est plus à commander (on commande la veille)', 'refusée', nextDay.ok ? 'acceptée' : nextDay.msg, rejected(nextDay, /repas de demain/), '2026-10-05');
 
   // ── Verrouillage planifié (20:00:30) : repas par défaut, journal « système »
-  await sim.clock('2026-10-04', '20:00:30');
+  await sim.clock('2026-10-05', '00:00:30');
   const before = (await sim.one(`select count(*)::int n from public.meal_orders`)).n;
   const created = (await sim.one('select public.lock_due_menus() as n')).n;
   const waiting = (await sim.one(`select count(*)::int n from public.deliveries where delivery_date = '2026-10-05' and status <> 'cancelled'`)).n;
   const orders = (await sim.one(`select count(*)::int n from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = '2026-10-05'`)).n;
-  C('V9', 'à 20:00:30 le menu du lundi est verrouillé : tous les clients attendus lundi ont un repas', `${waiting} commandes`, `${orders} (dont ${created} par défaut)`, orders === waiting && created > 0, '2026-10-04');
+  const missing9 = await missing('2026-10-05');
+  C('V9', 'à 00:00:30 lundi le menu du lundi est verrouillé : aucun client attendu sans repas, rien de nouveau à créer', `0 manquant, ${created} créés`, `${missing9} manquant(s), ${created} créé(s), ${orders} commandes pour ${waiting} livraisons`, missing9 === 0 && created === 0 && orders >= waiting, '2026-10-05');
   const menuStatus = (await sim.one(`select status from public.daily_menus where menu_date = '2026-10-05'`)).status;
   const tueStatus = (await sim.one(`select status from public.daily_menus where menu_date = '2026-10-06'`)).status;
   C('V9b', 'le menu du mardi reste ouvert', 'locked / open', `${menuStatus} / ${tueStatus}`, menuStatus === 'locked' && tueStatus === 'open', '2026-10-04');
+  void created;
   const firstOrder = await sim.one(`select o.is_default from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = '2026-10-05' and o.customer_id = $1`, [first.id]);
   C('V9c', 'le client du premier jour reçoit bien un repas par défaut', 'par défaut', firstOrder ? (firstOrder.is_default ? 'par défaut' : 'choisi') : 'aucun', firstOrder && firstOrder.is_default, '2026-10-04');
   const wrongActor = (await sim.one(`select count(*)::int n from public.audit_logs a join public.meal_orders o on o.id::text = a.entity_id where a.entity_type = 'meal_orders' and a.action = 'insert' and o.is_default and a.actor_user_id is not null`)).n;
@@ -113,12 +148,12 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
 
   // ── Saisie par l'équipe, même après 20 h (le bol n'est pas encore prêt)
   const nobody = noAccount[0];
-  await sim.clock('2026-10-05', '21:30:00'); // le menu de mardi est verrouillé depuis 20 h
+  await sim.clock('2026-10-06', '08:00:00'); // le menu de mardi est verrouillé depuis minuit, le bol n'est pas encore prêt
   await sim.one('select public.lock_due_menus()');
   const ctx = await sim.rpc(team.manager, 'staff_order_context', [nobody.id, '2026-10-06']);
   const opts = ctx.value.options;
   const op = (cat) => opts.find((o) => o.category === cat).option_id;
-  C('V13', 'équipe : le menu de mardi est verrouillé mais la saisie reste possible', 'editable', ctx.ok ? `editable=${ctx.value.editable} locked=${ctx.value.menu_locked}` : ctx.msg, ctx.ok && ctx.value.editable && ctx.value.menu_locked, '2026-10-05');
+  C('V13', 'équipe : le jour du repas (menu verrouillé) la saisie reste possible tant que le bol n\'est pas prêt', 'editable', ctx.ok ? `editable=${ctx.value.editable} locked=${ctx.value.menu_locked}` : ctx.msg, ctx.ok && ctx.value.editable && ctx.value.menu_locked, '2026-10-06');
   const meat = ctx.value.meat_allowed;
   const set = await sim.rpc(team.manager, 'staff_set_order', [nobody.id, '2026-10-06', op('plat'), op('accompagnement'), meat ? op('viande') : null]);
   C('V13b', 'le manager saisit le repas d\'un client sans compte après 20 h', 'accepté', set.ok ? 'accepté' : set.msg, set.ok, '2026-10-05');
@@ -155,7 +190,18 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   const w3 = await sim.rpc(admin, 'publish_menu', ['2026-10-13', ids(names), '13:00']);
   C('V15b', 'dimanche 20:30 : publier le menu du mardi reste possible (il se verrouille lundi à 20 h)', 'accepté', w3.ok ? 'accepté' : w3.msg, w3.ok, '2026-10-11');
   const w4 = await sim.rpc(admin, 'publish_menu', ['2026-10-12', ids(names.slice(0, 5)), '13:00']);
-  C('V15c', 'republier le menu du lundi, verrouillé depuis 20:00, est refusé', 'refusé', w4.ok ? 'accepté' : w4.msg, !w4.ok, '2026-10-11');
+  C('V15c', 'republier le menu du lundi est refusé (déjà publié)', 'refusé', w4.ok ? 'accepté' : w4.msg, !w4.ok, '2026-10-11');
+
+  // ── Menu modifié : un plat que seuls les repas par défaut utilisent peut être retiré, les défauts sont recalculés
+  await sim.clock('2026-10-11', '21:00:00');
+  const tueTop = await alphaFirst('2026-10-13', 'accompagnement');
+  const tueItems = await sim.q(`select c.id from public.menu_options o join public.catalog_items c on c.id = o.catalog_item_id join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = '2026-10-13'`);
+  const topItemId = (await sim.one('select catalog_item_id as i from public.menu_options where id = $1', [tueTop.id])).i;
+  const keep = tueItems.map((x) => x.id).filter((id) => id !== topItemId);
+  const upd = await sim.rpc(admin, 'update_menu', ['2026-10-13', keep, null]);
+  const newTop = await alphaFirst('2026-10-13', 'accompagnement');
+  const stale = (await sim.one(`select count(*)::int n from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = '2026-10-13' and o.is_default and o.accompagnement_option_id <> $1`, [newTop.id])).n;
+  C('V22', 'retirer du menu l\'accompagnement choisi seulement par défaut : accepté, les défauts passent au suivant', 'accepté, 0 défaut sur l\'ancien', upd.ok ? `${stale} défaut(s) sur un autre` : upd.msg, upd.ok && stale === 0 && newTop.id !== tueTop.id, '2026-10-11');
 
   // ── « Bientôt expiré » : abonnement d'une semaine, puis d'un mois
   const weekly = clients.find((c) => !c.subs.length && c.group === 'F');
@@ -163,6 +209,10 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   const monthly = clients.find((c) => c.group === 'F' && c !== weekly);
   const msub = await sim.rpc(admin, 'create_subscription_weeks', [monthly.id, plans.F2, '2026-10-12', 4, null, null, null]);
   const stateOn = async (c, d) => (await sim.one('select public.customer_subscription_context($1, $2::date) ->> \'state\' as s', [c.id, d])).s;
+  await sim.clock('2026-10-11', '20:30:00');
+  const refreshed = (await sim.one('select public.refresh_open_default_orders() as n')).n;
+  const newbie = await sim.one(`select o.is_default from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = '2026-10-12' and o.customer_id = $1`, [weekly.id]);
+  C('V24', 'un nouvel abonné reçoit son repas par défaut à la minute suivante (tâche planifiée)', 'repas par défaut', newbie ? (newbie.is_default ? `repas par défaut (${refreshed} créés)` : 'choisi') : 'aucun', Boolean(newbie && newbie.is_default), '2026-10-11');
   const wk = [await stateOn(weekly, '2026-10-12'), await stateOn(weekly, '2026-10-14'), await stateOn(weekly, '2026-10-15'), await stateOn(weekly, '2026-10-16')];
   C('V16', 'abonnement d\'une semaine : actif lundi et mercredi, bientôt expiré jeudi et vendredi', 'actif, actif, bientot_expire, bientot_expire', wk.join(', '), wk.join() === 'actif,actif,bientot_expire,bientot_expire' && wsub.ok, '2026-10-12');
   const mo = [await stateOn(monthly, '2026-10-12'), await stateOn(monthly, '2026-10-29'), await stateOn(monthly, '2026-11-02'), await stateOn(monthly, '2026-11-05')];
@@ -174,6 +224,24 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   };
   const ow = [await ov('2026-10-12', weekly), await ov('2026-10-13', weekly), await ov('2026-10-14', weekly), await ov('2026-10-16', weekly)];
   C('V17', 'vue administratrice, abonnement d\'une semaine : active, active, expiring_soon (2 jours avant la fin), expires_today', 'active, active, expiring_soon, expires_today', ow.join(', '), ow.join() === 'active,active,expiring_soon,expires_today', '2026-10-16');
+
+  // ── Un abonnement suspendu : sa livraison annulée ne reçoit pas de repas par défaut
+  await sim.clock('2026-10-11', '21:10:00');
+  const suspended = a5[6];
+  const susp = await sim.rpc(admin, 'set_subscription_status', [suspended.subs[0].id, 'suspended', 'Voyage']);
+  const pub14 = await sim.rpc(admin, 'publish_menu', ['2026-10-14', ids(names), '13:00']);
+  const got = (await sim.one(`select count(*)::int n from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = '2026-10-14' and o.customer_id = $1`, [suspended.id])).n;
+  const others = await defaultsCount('2026-10-14');
+  C('V26', 'abonnement suspendu : pas de repas par défaut pour sa livraison annulée, les autres en ont un', '0 pour lui, > 0 pour les autres', `${got} pour lui, ${others} au total`, susp.ok && pub14.ok && got === 0 && others > 0, '2026-10-11');
+
+  // ── La limite de commande se réglera plus tard : réglage « order_limit_time » (vide = aucune)
+  const org = W.org;
+  const lockAt = async (d, t, date) => { await sim.clock(d, t); return (await sim.one('select public.menu_is_past_lock($1, $2::date) as b', [org, date])).b; };
+  const none = [await lockAt('2026-10-12', '23:59:59', '2026-10-13'), await lockAt('2026-10-13', '00:00:00', '2026-10-13')];
+  await sim.q("insert into public.app_settings (organization_id, key, value) values ($1, 'order_limit_time', to_jsonb('20:00'::text))", [org]);
+  const withLimit = [await lockAt('2026-10-12', '19:59:59', '2026-10-13'), await lockAt('2026-10-12', '20:00:00', '2026-10-13')];
+  await sim.q("delete from public.app_settings where organization_id = $1 and key = 'order_limit_time'", [org]);
+  C('V25', 'sans réglage : le menu de demain se verrouille à minuit ; avec « order_limit_time = 20:00 » : la veille à 20 h', 'false,true | false,true', `${none.join(',')} | ${withLimit.join(',')}`, none.join() === 'false,true' && withLimit.join() === 'false,true', '2026-10-12');
 
   // ── Alerte de sécurité : search_path fixé
   const sp = await sim.q(`select p.proname, p.proconfig::text c from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('meat_allowed','meat_allowed_ctx','normalize_login_text','customer_tech_email')`);
