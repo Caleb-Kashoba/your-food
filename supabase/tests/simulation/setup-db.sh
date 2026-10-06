@@ -3,7 +3,7 @@
 # Usage : CONTAINER=yourfood-postgres PGUSER=user ./setup-db.sh [nom_base]
 set -euo pipefail
 DB="${1:-fusion_sim}"; CONTAINER="${CONTAINER:-yourfood-postgres}"; PGUSER="${PGUSER:-user}"
-HERE="$(cd "$(dirname "$0")" && pwd)"; MIG="$HERE/../../migrations"
+HERE="$(cd "$(dirname "$0")" && pwd)"; MIG="${MIG_DIR:-$HERE/../../migrations}"   # MIG_DIR : dossier de migrations de remplacement (ex. état de la production)
 psqlc() { docker exec -i "$CONTAINER" psql -U "$PGUSER" -v ON_ERROR_STOP=1 -q "$@"; }
 psqlc -d postgres -c "drop database if exists $DB" -c "create database $DB" >/dev/null
 psqlc -d "$DB" < "$HERE/stubs.sql" 2>&1 | grep -v "wal_level\|HINT" || true
