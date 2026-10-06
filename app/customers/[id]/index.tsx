@@ -13,7 +13,7 @@ import { getCustomer } from '@/features/customers/customers.service';
 import { listCustomerDeliveries } from '@/features/deliveries/deliveries.service';
 import { listPayments } from '@/features/payments/payments.service';
 import { listSubscriptions } from '@/features/subscriptions/subscriptions.service';
-import { calculateRenewalStartDate, formatLocalDate } from '@/lib/dates';
+import { formatLocalDate } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { formatMoney } from '@/lib/money';
 import { colors, radii, spacing } from '@/theme/colors';
@@ -142,16 +142,9 @@ export default function CustomerDetailScreen() {
             <Text style={styles.payment}>{formatMoney(subscription.amountPaid)} / {formatMoney(subscription.price)}</Text>
             {hasPermission('subscriptions.write') ? (
               <Pressable
-                onPress={() => router.push({
-                  pathname: '/subscriptions/new',
-                  params: {
-                    customerId: id,
-                    renewedFromId: subscription.id,
-                    startDate: calculateRenewalStartDate(subscription.endDate)
-                  }
-                })}
+                onPress={() => router.push({ pathname: '/subscriptions/[id]', params: { id: subscription.id } })}
               >
-                <Text style={styles.link}>Renouveler</Text>
+                <Text style={styles.link}>Rallonger ou modifier</Text>
               </Pressable>
             ) : null}
           </Pressable>

@@ -151,3 +151,102 @@ export async function setSubscriptionPrice(id: string, total: number, reason: st
   });
   if (error) throw error;
 }
+
+/** Abonnement qui se termine bientôt, sans suite : à renouveler (tableau de bord) */
+export interface RenewalItem {
+  subscriptionId: string;
+  customerId: string;
+  customerName: string;
+  phone: string | null;
+  planName: string;
+  endDate: string;
+  daysLeft: number;
+  price: number;
+  currency: string;
+}
+
+interface RenewalRow {
+  subscription_id: string;
+  customer_id: string;
+  customer_name: string;
+  phone: string | null;
+  plan_name: string;
+  end_date: string;
+  days_left: number;
+  price: string | number;
+  currency: string;
+}
+
+export async function listSubscriptionsToRenew(): Promise<RenewalItem[]> {
+  const { data, error } = await requireSupabase().rpc('subscriptions_to_renew');
+  if (error) throw error;
+  return (data as RenewalRow[]).map((row) => ({
+    subscriptionId: row.subscription_id,
+    customerId: row.customer_id,
+    customerName: row.customer_name,
+    phone: row.phone,
+    planName: row.plan_name,
+    endDate: row.end_date,
+    daysLeft: row.days_left,
+    price: Number(row.price),
+    currency: row.currency
+  }));
+}
+
+/** Renouvelle un client avec la même formule : le lundi qui suit la fin de son abonnement */
+export async function renewSubscriptionWeeks(customerId: string, weeks = 1): Promise<string> {
+  const { data, error } = await requireSupabase().rpc('renew_subscription_weeks', { p_customer: customerId, p_weeks: weeks });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Rallonge l'abonnement en cours : fin + N semaines, prix + N × prix hebdomadaire, livraisons ajoutées */
+export async function extendSubscriptionWeeks(id: string, weeks: number, reason?: string): Promise<void> {
+  const { error } = await requireSupabase().rpc('extend_subscription_weeks', {
+    p_subscription: id,
+    p_weeks: weeks,
+    p_reason: reason?.trim() || null
+  });
+  if (error) throw error;
+}
+
+/** Modifie les dates d'un abonnement (motif obligatoire, conservé dans l'historique) */
+export async function modifySubscription(params: { id: string; startDate?: string | null; endDate?: string | null; reason: string }): Promise<void> {
+  const { error } = await requireSupabase().rpc('modify_subscription', {
+    p_subscription: params.id,
+    p_start: params.startDate || null,
+    p_end: params.endDate || null,
+    p_reason: params.reason.trim()
+  });
+  if (error) throw error;
+}
+
+/** Supprime un abonnement sans paiement ni repas déjà livré (motif obligatoire, conservé dans l'historique) */
+export async function deleteSubscription(id: string, reason: string): Promise<void> {
+  const { error } = await requireSupabase().rpc('delete_subscription', { p_subscription: id, p_reason: reason.trim() });
+  if (error) throw error;
+}
+
+export interface SubscriptionChange {
+  id: string;
+  action: 'extended' | 'modified' | 'deleted';
+  reason: string | null;
+  details: Record<string, string | number | null>;
+  createdAt: string;
+}
+
+export async function listSubscriptionChanges(subscriptionId: string): Promise<SubscriptionChange[]> {
+  const { data, error } = await requireSupabase()
+    .from('subscription_changes')
+    .select('id, action, reason, details, created_at')
+    .eq('subscription_id', subscriptionId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data as { id: string; action: SubscriptionChange['action']; reason: string | null; details: SubscriptionChange['details']; created_at: string }[]).map((row) => ({
+    id: row.id,
+    action: row.action,
+    reason: row.reason,
+    details: row.details,
+    createdAt: row.created_at
+  }));
+}

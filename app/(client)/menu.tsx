@@ -33,19 +33,19 @@ import {
   type ClientMenuState,
   type Picks
 } from '@/features/client-area/menu-state';
-import { formatDayMonth, formatLocalDate } from '@/lib/dates';
+import { formatDayMonth, formatLocalDate, nextWorkingDay } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { colors, radii, spacing } from '@/theme/colors';
 
 const CATEGORY_TITLE: Record<MealCategory, string> = { plat: 'Plat', accompagnement: 'Accompagnement', viande: 'Viande' };
 
 const NOTICES: Partial<Record<ClientMenuState, { title: string; text: string; tone: 'info' | 'success' | 'danger' | 'warning' }>> = {
-  en_retard: { title: 'En retard', text: 'Tu peux encore choisir jusqu’à 20h00.', tone: 'warning' },
+  en_retard: { title: 'En retard', text: 'Tu peux encore choisir.', tone: 'warning' },
   verrouille: { title: 'Menu verrouillé', text: 'Ta commande est prise en compte.', tone: 'success' },
   defaut: { title: 'Attribué automatiquement', text: 'Aucun choix reçu : on t’a servi les plats les plus demandés.', tone: 'info' },
   annule: { title: 'Commande annulée', text: 'Ton repas est exclu de la préparation.', tone: 'danger' },
   inactif: { title: 'Abonnement en pause', text: 'Contacte l’administratrice pour reprendre tes repas.', tone: 'warning' },
-  premier_jour: { title: 'Ton premier repas', text: 'Ton abonnement commence demain : on choisit ton premier repas pour toi. Ensuite, tu choisis la veille, avant 20h00.', tone: 'info' }
+  premier_jour: { title: 'Ton premier repas', text: 'Ton abonnement commence demain : on choisit ton premier repas pour toi. Ensuite, tu choisis la veille pour le lendemain.', tone: 'info' }
 };
 
 const DELIVERY_LABEL: Record<TodayMeal['delivery_status'], string> = {
@@ -135,7 +135,7 @@ export default function ClientMenuScreen() {
   const unchanged = hasActiveOrder && !data.order?.is_default && !picksChanged(data, picks);
   const left = secondsLeft(data, state, now, data.device_offset_ms);
   const notice = NOTICES[state];
-  const showChoices = !['aucun_menu', 'non_commence', 'expire', 'inactif', 'premier_jour'].includes(state);
+  const showChoices = !['aucun_menu', 'non_commence', 'expire', 'inactif', 'premier_jour', 'dernier_jour'].includes(state);
 
   const pick = (category: MealCategory, optionId: string) => {
     if (!editable) return;
@@ -152,7 +152,9 @@ export default function ClientMenuScreen() {
       </View>
 
       <View style={styles.heading}>
-        <Text style={styles.date}>{state === 'aucun_menu' ? 'Demain' : 'Au menu demain'}, {formatDayMonth(data.date)}.</Text>
+        <Text style={styles.date}>
+          {state === 'dernier_jour' ? `Aujourd’hui, ${formatDayMonth(data.order_date ?? dayBefore(data.date))}.` : `${state === 'aucun_menu' ? 'Demain' : 'Au menu demain'}, ${formatDayMonth(data.date)}.`}
+        </Text>
         <Text style={styles.headline}>{HEADLINES[state]}</Text>
       </View>
 
@@ -179,6 +181,13 @@ export default function ClientMenuScreen() {
           tone="warning"
         />
       ) : null}
+      {state === 'dernier_jour' ? (
+        <Banner
+          text={`Ton abonnement se termine aujourd’hui${data.subscription.end_date ? ` (${formatLocalDate(data.subscription.end_date)})` : ''}. Renouvelle-le pour continuer ${formatDayMonth(nextWorkingDay(data.subscription.end_date ?? data.order_date ?? data.date))}.`}
+          title="Dernier jour d’abonnement"
+          tone="warning"
+        />
+      ) : null}
       {state === 'expire' ? (
         <Banner
           text={`Terminé le ${data.subscription.end_date ? formatLocalDate(data.subscription.end_date) : '—'}. Contacte l’administratrice pour le renouveler.`}
@@ -192,7 +201,7 @@ export default function ClientMenuScreen() {
       {state === 'aucun_menu' ? (
         <Banner
           text={data.next_menu_date
-            ? `Le prochain menu est celui de ${formatDayMonth(data.next_menu_date)} : tu le choisis ${formatDayMonth(dayBefore(data.next_menu_date))}, avant 20h00.`
+            ? `Le prochain menu est celui de ${formatDayMonth(data.next_menu_date)} : tu le choisis ${formatDayMonth(dayBefore(data.next_menu_date))}.`
             : 'L’administratrice n’a pas encore publié le menu de demain. Reviens un peu plus tard.'}
           title="Pas de menu demain"
           tone="info"

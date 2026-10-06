@@ -10,6 +10,7 @@ export type ClientMenuState =
   | 'expire'
   | 'inactif'
   | 'premier_jour'
+  | 'dernier_jour'
   | 'annule'
   | 'defaut'
   | 'verrouille'
@@ -22,6 +23,8 @@ export type ClientMenuState =
  */
 export function deriveMenuState(menu: TodayMenu, resuming = false): ClientMenuState {
   const subscription = menu.subscription.state;
+  // Dernier jour : l'abonnement court encore aujourd'hui, il n'est « expiré » que demain
+  if (menu.last_day && subscription === 'expire') return 'dernier_jour';
   if (subscription === 'expire') return 'expire';
   if (subscription === 'non_commence') return 'non_commence';
   if (subscription === 'suspendu' || subscription === 'annule' || subscription === 'aucun') return 'inactif';
@@ -45,7 +48,8 @@ export const HEADLINES: Record<ClientMenuState, string> = {
   non_commence: 'On t’attend à table.',
   inactif: 'Ton abonnement est en pause.',
   aucun_menu: 'Pas de repas demain.',
-  premier_jour: 'Bienvenue à table.'
+  premier_jour: 'Bienvenue à table.',
+  dernier_jour: 'C’est ton dernier jour.'
 };
 
 /** Le client peut-il encore choisir ou modifier son repas ? */

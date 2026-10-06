@@ -55,6 +55,8 @@ export interface TodayMenu {
   meat_allowed_today: boolean;
   /** L'abonnement commence demain : le premier repas est attribué automatiquement */
   first_day_default?: boolean;
+  /** Dernier jour d'abonnement : demain l'abonnement est terminé, mais il court encore aujourd'hui (pas « expiré ») */
+  last_day?: boolean;
   today_meal?: TodayMeal | null;
   /** Quand il n'y a pas de menu demain : le prochain menu publié */
   next_menu_date?: string | null;

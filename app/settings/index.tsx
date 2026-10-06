@@ -7,8 +7,10 @@ import { AppInput } from '@/components/ui/AppInput';
 import { Screen } from '@/components/ui/Screen';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import {
+  getDefaultMinVotes,
   listAlertRules,
   listMessageTemplates,
+  setDefaultMinVotes,
   updateAlertRule,
   updateMessageTemplate,
   type AlertRule,
@@ -39,6 +41,7 @@ export default function SettingsScreen() {
           onSaved={() => queryClient.invalidateQueries({ queryKey: ['alert-rules'] })}
         />
       ))}
+      <MinVotesEditor />
       <View style={styles.header}>
         <Text style={styles.title}>Modèles WhatsApp</Text>
         <Text style={styles.description}>Variables disponibles : {'{customer_name}'} et {'{expiration_date}'}. Le message reste modifiable avant l’ouverture de WhatsApp.</Text>
@@ -55,6 +58,51 @@ export default function SettingsScreen() {
         <Text style={styles.description}>Les secrets serveur, identifiants EAS et clés de signature ne sont jamais stockés dans l’application mobile.</Text>
       </View>
     </Screen>
+  );
+}
+
+/** Seuil de votes avant que le repas par défaut suive le plus choisi (5 par défaut) */
+function MinVotesEditor() {
+  const queryClient = useQueryClient();
+  const current = useQuery({ queryKey: ['default-min-votes'], queryFn: getDefaultMinVotes });
+  const [value, setValue] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  if (current.isLoading) return null;
+  if (current.error) return <Text style={styles.description}>{getErrorMessage(current.error)}</Text>;
+  const shown = value ?? String(current.data ?? 5);
+  const save = async () => {
+    const votes = Number(shown);
+    if (!Number.isInteger(votes) || votes < 0 || votes > 100) {
+      Alert.alert('Valeur invalide', 'Saisissez un nombre entier entre 0 et 100.');
+      return;
+    }
+    try {
+      setSaving(true);
+      await setDefaultMinVotes(votes);
+      await queryClient.invalidateQueries({ queryKey: ['default-min-votes'] });
+      setValue(null);
+      setSaved(true);
+    } catch (error) {
+      Alert.alert('Enregistrement impossible', getErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <>
+      <View style={styles.header}>
+        <Text style={styles.title}>Repas par défaut</Text>
+        <Text style={styles.description}>
+          Les clients qui n’ont rien choisi reçoivent le repas le plus choisi, mais seulement à partir d’un nombre minimum de choix dans la catégorie.
+          En dessous, ils reçoivent le premier plat par ordre alphabétique. Mettez 0 pour toujours suivre le plus choisi.
+        </Text>
+      </View>
+      <View style={styles.rule}>
+        <AppInput keyboardType="number-pad" label="Choix minimum" onChangeText={(text) => { setValue(text); setSaved(false); }} value={shown} />
+        <AppButton label={saved ? 'Enregistré' : 'Enregistrer'} loading={saving} onPress={() => void save()} variant="secondary" />
+      </View>
+    </>
   );
 }
 

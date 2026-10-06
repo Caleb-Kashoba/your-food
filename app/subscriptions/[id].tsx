@@ -11,8 +11,18 @@ import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { listPayments } from '@/features/payments/payments.service';
-import { getSubscriptionDetail, setSubscriptionPrice, setSubscriptionStatus, updateSubscriptionNotes } from '@/features/subscriptions/subscriptions.service';
-import { calculateRenewalStartDate, formatLocalDate } from '@/lib/dates';
+import {
+  deleteSubscription,
+  extendSubscriptionWeeks,
+  getSubscriptionDetail,
+  listSubscriptionChanges,
+  modifySubscription,
+  setSubscriptionPrice,
+  setSubscriptionStatus,
+  updateSubscriptionNotes,
+  type SubscriptionChange
+} from '@/features/subscriptions/subscriptions.service';
+import { addLocalDays, formatLocalDate } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { formatMoney } from '@/lib/money';
 import { colors, spacing } from '@/theme/colors';
@@ -27,6 +37,7 @@ export default function SubscriptionDetailScreen() {
   const { hasPermission } = useAuth();
   const subscription = useQuery({ queryKey: ['subscription', id], queryFn: () => getSubscriptionDetail(id), enabled: Boolean(id) });
   const payments = useQuery({ queryKey: ['payments', 'subscription', id], queryFn: () => listPayments({ subscriptionId: id }), enabled: Boolean(id) });
+  const changes = useQuery({ queryKey: ['subscription', id, 'changes'], queryFn: () => listSubscriptionChanges(id), enabled: Boolean(id) });
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -115,24 +126,140 @@ export default function SubscriptionDetailScreen() {
           {item.adminStatus !== 'cancelled' ? (
             <AppButton disabled={saving} label="Annuler l’abonnement" onPress={() => changeStatus('cancelled', 'Annuler')} variant="danger" />
           ) : null}
-          <AppButton
-            label="Renouveler sans écraser l’historique"
-            onPress={() => router.push({
-              pathname: '/subscriptions/new',
-              params: {
-                customerId: item.customerId,
-                renewedFromId: id,
-                startDate: calculateRenewalStartDate(item.endDate)
-              }
-            })}
-            variant="secondary"
-          />
+          {item.adminStatus === 'cancelled' || item.effectiveStatus === 'expired' ? (
+            <>
+              <Text style={styles.meta}>Cet abonnement est terminé. Pour continuer, crée un nouvel abonnement : celui-ci reste dans l’historique.</Text>
+              <AppButton label="Créer un nouvel abonnement" onPress={() => router.push({ pathname: '/subscriptions/new', params: { customerId: item.customerId } })} variant="secondary" />
+            </>
+          ) : (
+            <ExtendEditor endDate={item.endDate} id={id} onSaved={refresh} />
+          )}
+          {item.adminStatus !== 'cancelled' ? <DatesEditor endDate={item.endDate} id={id} onSaved={refresh} startDate={item.startDate} /> : null}
           <PriceEditor currency={item.currency} currentPrice={item.price} id={id} onSaved={refresh} />
           <NotesEditor id={id} initialNotes={item.notes ?? ''} onSaved={refresh} />
-          <Text style={styles.meta}>Le client, la formule appliquée et la période restent immuables pour préserver l’historique ; le prix ne change que par une décision motivée ci-dessus.</Text>
+          <DeleteEditor id={id} onDeleted={async () => { await refresh(); if (router.canGoBack()) router.back(); else router.replace('/subscriptions'); }} />
+          <Text style={styles.meta}>Un client n’a qu’un abonnement en cours : on le rallonge. La formule ne change pas en cours de route (pour en changer : annule celui-ci puis crée-en un nouveau). Les dates et le prix ne changent que par une décision motivée, conservée dans l’historique.</Text>
+        </Card>
+      ) : null}
+      {changes.data && changes.data.length > 0 ? (
+        <Card style={styles.card}>
+          <Text style={styles.sectionTitle}>Historique des changements</Text>
+          {changes.data.map((change) => <ChangeRow change={change} key={change.id} />)}
         </Card>
       ) : null}
     </Screen>
+  );
+}
+
+/** Rallonge l'abonnement en cours : fin + N semaines, prix + N × prix hebdomadaire */
+function ExtendEditor({ id, endDate, onSaved }: { id: string; endDate: string; onSaved: () => Promise<void> }) {
+  const [weeks, setWeeks] = useState('1');
+  const [saving, setSaving] = useState(false);
+  const count = Number.parseInt(weeks, 10);
+  const valid = Number.isInteger(count) && count >= 1 && count <= 52;
+  const save = () => {
+    Alert.alert('Rallonger cet abonnement ?', `La fin passe au ${formatLocalDate(addLocalDays(endDate, count * 7))} et le prix augmente d’autant de semaines.`, [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Rallonger',
+        onPress: () => {
+          setSaving(true);
+          void extendSubscriptionWeeks(id, count)
+            .then(onSaved)
+            .then(() => setWeeks('1'))
+            .catch((error: unknown) => Alert.alert('Rallongement impossible', getErrorMessage(error)))
+            .finally(() => setSaving(false));
+        }
+      }
+    ]);
+  };
+  return (
+    <View style={styles.notesEditor}>
+      <Text style={styles.sectionTitle}>Rallonger</Text>
+      <Text style={styles.meta}>Fin actuelle : {formatLocalDate(endDate)}.{valid ? ` Après : ${formatLocalDate(addLocalDays(endDate, count * 7))}.` : ''}</Text>
+      <AppInput keyboardType="number-pad" label="Nombre de semaines à ajouter" onChangeText={setWeeks} value={weeks} />
+      <AppButton disabled={!valid} label={valid ? `Rallonger de ${count} semaine${count > 1 ? 's' : ''}` : 'Rallonger'} loading={saving} onPress={save} variant="secondary" />
+    </View>
+  );
+}
+
+/** Modifier le début ou la fin : motif obligatoire, conservé dans l'historique */
+function DatesEditor({ id, startDate, endDate, onSaved }: { id: string; startDate: string; endDate: string; onSaved: () => Promise<void> }) {
+  const [start, setStart] = useState(startDate);
+  const [end, setEnd] = useState(endDate);
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const dateOk = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const changed = start !== startDate || end !== endDate;
+  const save = async () => {
+    try {
+      setSaving(true);
+      await modifySubscription({ id, startDate: start !== startDate ? start : null, endDate: end !== endDate ? end : null, reason });
+      setReason('');
+      await onSaved();
+      Alert.alert('Dates modifiées');
+    } catch (error) {
+      Alert.alert('Modification impossible', getErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <View style={styles.notesEditor}>
+      <Text style={styles.sectionTitle}>Modifier les dates</Text>
+      <Text style={styles.meta}>Les livraisons hors de la nouvelle période sont supprimées, celles de la nouvelle période sont créées. Le prix ne change pas (utilise « Prix exceptionnel » si besoin).</Text>
+      <AppInput label="Début (AAAA-MM-JJ)" onChangeText={setStart} value={start} />
+      <AppInput label="Fin (AAAA-MM-JJ)" onChangeText={setEnd} value={end} />
+      <AppInput label="Raison du changement" onChangeText={setReason} value={reason} />
+      <AppButton disabled={!changed || !dateOk(start) || !dateOk(end) || !reason.trim()} label="Modifier les dates" loading={saving} onPress={() => void save()} variant="secondary" />
+    </View>
+  );
+}
+
+/** Supprimer : seulement sans paiement ni repas déjà préparé ou livré ; sinon on annule */
+function DeleteEditor({ id, onDeleted }: { id: string; onDeleted: () => Promise<void> }) {
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const remove = () => {
+    Alert.alert('Supprimer cet abonnement ?', 'Il disparaît avec ses livraisons et ses repas. Impossible s’il a des paiements ou des repas déjà livrés : annule-le alors.', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer',
+        style: 'destructive',
+        onPress: () => {
+          setSaving(true);
+          void deleteSubscription(id, reason)
+            .then(onDeleted)
+            .catch((error: unknown) => Alert.alert('Suppression impossible', getErrorMessage(error)))
+            .finally(() => setSaving(false));
+        }
+      }
+    ]);
+  };
+  return (
+    <View style={styles.notesEditor}>
+      <Text style={styles.sectionTitle}>Supprimer</Text>
+      <AppInput label="Raison de la suppression" onChangeText={setReason} value={reason} />
+      <AppButton disabled={!reason.trim()} label="Supprimer l’abonnement" loading={saving} onPress={remove} variant="danger" />
+    </View>
+  );
+}
+
+function ChangeRow({ change }: { change: SubscriptionChange }) {
+  const d = change.details;
+  const day = (value: string | number | null | undefined) => (typeof value === 'string' ? formatLocalDate(value) : '—');
+  const title = change.action === 'extended'
+    ? `Rallongé de ${d.weeks} semaine${Number(d.weeks) > 1 ? 's' : ''} : fin ${day(d.end_before)} → ${day(d.end_after)}`
+    : change.action === 'modified'
+      ? `Dates modifiées : début ${day(d.start_before)} → ${day(d.start_after)}, fin ${day(d.end_before)} → ${day(d.end_after)}`
+      : 'Abonnement supprimé';
+  return (
+    <View style={styles.paymentRow}>
+      <View style={styles.grow}>
+        <Text style={styles.paymentAmount}>{title}</Text>
+        <Text style={styles.meta}>{formatLocalDate(change.createdAt.slice(0, 10))}{change.reason ? ` · ${change.reason}` : ''}</Text>
+      </View>
+    </View>
   );
 }
 

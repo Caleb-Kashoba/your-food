@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { getDashboardMetrics } from '@/features/dashboard/dashboard.service';
+import { RenewalsCard } from '@/features/subscriptions/RenewalsCard';
 import { useTableRealtime } from '@/hooks/use-table-realtime';
 import { getErrorMessage } from '@/lib/errors';
 import { formatMoney } from '@/lib/money';
@@ -73,6 +74,8 @@ export default function DashboardScreen() {
           <Ionicons color={colors.muted} name="chevron-forward" size={20} />
         </Pressable>
       ) : null}
+
+      {hasPermission('subscriptions.read') ? <RenewalsCard /> : null}
 
       <View style={styles.grid}>
         <MetricCard icon="add-circle-outline" label="Nouveaux abonnements" value={data.newSubscriptions} />

@@ -59,3 +59,16 @@ export async function updateMessageTemplate(id: string, body: string, isActive: 
     .eq('id', id);
   if (error) throw error;
 }
+
+/** Nombre minimum de choix de clients avant que le repas par défaut suive « le plus choisi » (en dessous : ordre alphabétique) */
+export async function getDefaultMinVotes(): Promise<number> {
+  const { data, error } = await requireSupabase().rpc('get_default_min_votes');
+  if (error) throw error;
+  return Number(data);
+}
+
+export async function setDefaultMinVotes(value: number): Promise<number> {
+  const { data, error } = await requireSupabase().rpc('set_default_min_votes', { p_value: value });
+  if (error) throw error;
+  return Number(data);
+}

@@ -73,6 +73,13 @@ describe('états du menu client', () => {
     expect(deriveMenuState(menu({ subscription: { state: 'bientot_expire' } }))).toBe('normal');
   });
 
+  it('dernier jour d’abonnement : « dernier jour », pas « expiré » aujourd’hui', () => {
+    expect(deriveMenuState(menu({ subscription: { state: 'expire' }, last_day: true }))).toBe('dernier_jour');
+    // le lendemain de la fin, l'abonnement est bien expiré
+    expect(deriveMenuState(menu({ subscription: { state: 'expire' } }))).toBe('expire');
+    expect(deriveMenuState(menu({ subscription: { state: 'actif' }, last_day: false }))).toBe('normal');
+  });
+
   it('sans menu publié', () => {
     expect(deriveMenuState(menu({ menu_status: 'aucun_menu', menu: null }))).toBe('aucun_menu');
   });
