@@ -35,6 +35,8 @@ Variables : `SIM_HOST`, `SIM_PORT` (55432), `SIM_USER`, `SIM_PASSWORD`, `SIM_DB`
 | `seed.js` | Équipe, formules, carte, 100 clients, abonnements, comptes, profils |
 | `month.js` | Le mois : planning, comportements, cas, invariants, concurrence, statistiques, mesures |
 | `report.js` | Annexe Markdown |
+| `veille.js` | Calendrier « la veille », repas par défaut, saisie par l'équipe (`SIM_DB=fusion_sim node veille.js`) |
+| `audit-planning.js` | Cas limites de la planification (suspension après création des défauts, saisie le jour du repas, menu oublié, abonnement saisi tard) : un cas en échec est une faille |
 | `mutations/`, `run-mutations.sh` | Pannes injectées |
 
 ## Limites

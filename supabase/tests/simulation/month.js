@@ -107,6 +107,9 @@ const LOCK = 20 * 3600;
     if (m.date !== S) J.violation('jour_du_menu', d, `le client doit voir le menu de demain (${S}), pas ${m.date}`);
     const expected = modelState(c, S);
     if (m.subscription.state !== expected) J.violation('etat_abonnement', d, `${c.first} ${c.last} : attendu ${expected}, constaté ${m.subscription.state}`);
+    // Dernier jour d'abonnement : demain l'abonnement est terminé mais aujourd'hui il court encore
+    const expectedLast = expected === 'expire' && ['actif', 'bientot_expire'].includes(modelState(c, d));
+    if (Boolean(m.last_day) !== expectedLast) J.violation('dernier_jour', d, `${c.first} ${c.last} : attendu ${expectedLast}, constaté ${m.last_day}`);
     const sub = currentSub(c, S);
     if (sub && (m.meat_allowed_today !== meatAllowed(sub.plan, S))) J.violation('viande_jour', d, `${c.first} ${c.last} (${sub.plan}) : attendu ${meatAllowed(sub.plan, S)}, constaté ${m.meat_allowed_today}`);
     const published = Boolean(M.menus[S]);
@@ -213,10 +216,12 @@ const LOCK = 20 * 3600;
     const top = {};
     for (const cat of ['plat', 'accompagnement', 'viande']) {
       const col = { plat: 'plat_option_id', accompagnement: 'accompagnement_option_id', viande: 'viande_option_id' }[cat];
+      // Sous le seuil de votes (5 par défaut) un petit nombre de clients ne décide pas pour tous : ordre alphabétique
+      const total = (await sim.one(`select count(*)::int as n from public.meal_orders mo where mo.daily_menu_id = $1 and mo.status = 'confirmed' and not mo.is_default and mo.${col} is not null`, [m.id])).n;
       const rows = await sim.q(
         `select o.id, c.name, (select count(*) from public.meal_orders mo where mo.status = 'confirmed' and not mo.is_default and mo.${col} = o.id) as n
          from public.menu_options o join public.catalog_items c on c.id = o.catalog_item_id
-         where o.daily_menu_id = $1 and c.category = $2 order by n desc, c.name asc limit 1`, [m.id, cat]);
+         where o.daily_menu_id = $1 and c.category = $2 order by ${total >= 5 ? 'n desc, ' : ''}c.name asc limit 1`, [m.id, cat]);
       top[cat] = rows[0] ? rows[0].id : null;
     }
     const waiting = (await sim.one(
@@ -498,7 +503,7 @@ const LOCK = 20 * 3600;
     const sat = await sim.rpc(admin, 'publish_menu', ['2026-10-10', itemIds(names), '13:00']);
     C('M3', 'menus', 'menu un samedi', 'refusé', sat.ok ? 'accepté' : sat.msg, expectRejected(sat, /lundi au vendredi/));
     const past = await sim.rpc(admin, 'publish_menu', ['2026-10-01', itemIds(names), '13:00']);
-    C('M4', 'menus', 'menu pour un jour passé', 'refusé', past.ok ? 'accepté' : past.msg, expectRejected(past, /trop tard/));
+    C('M4', 'menus', 'menu pour un jour passé', 'refusé', past.ok ? 'accepté' : past.msg, expectRejected(past, /jour passé/));
     const noMeat = await sim.rpc(admin, 'publish_menu', ['2026-10-12', itemIds(names.filter((n) => !VIANDES.includes(n))), '13:00']);
     C('M5', 'menus', 'menu sans viande', 'refusé', noMeat.ok ? 'accepté' : noMeat.msg, expectRejected(noMeat, /au moins un plat/));
     for (const [bad, id] of [['10:59', 'M6a'], ['19:01', 'M6b']]) {
@@ -672,10 +677,11 @@ const LOCK = 20 * 3600;
     const group = clients.filter((c) => c.group === 'B' && c.subs[0]);
     const renewNow = group.slice(0, 6);
     for (const c of renewNow) {
+      // Un abonnement en cours se rallonge : même abonnement, fin + 4 semaines (un client n'a qu'un abonnement en cours)
       const res = await sim.rpc(admin, 'renew_subscription_weeks', [c.id, 4, null, null, null], { name: 'renew' });
-      const ok = res.ok && (await sim.one('select start_date::text as s, end_date::text as e from public.subscriptions where id = $1', [res.value]));
-      C('S4', 'abonnements', `renouvellement avant la fin (${c.first} ${c.last}) : commence le lundi suivant`, 'début 2026-10-12, fin 2026-11-06', ok ? `${ok.s} → ${ok.e}` : res.msg, ok && ok.s === '2026-10-12' && ok.e === '2026-11-06');
-      if (res.ok) c.subs.push({ id: res.value, start: '2026-10-12', end: '2026-11-06', status: 'active', plan: c.plan, blockedUntil: null });
+      const ok = res.ok && (await sim.one('select id, start_date::text as s, end_date::text as e, (select count(*)::int from public.subscriptions x where x.customer_id = subscriptions.customer_id and x.admin_status <> \'cancelled\') as n from public.subscriptions where id = $1', [res.value]));
+      C('S4', 'abonnements', `renouvellement avant la fin (${c.first} ${c.last}) : l'abonnement en cours est rallongé de 4 semaines`, 'même abonnement, début 2026-09-21, fin 2026-11-06, un seul abonnement', ok ? `${res.value === c.subs[0].id ? 'même abonnement' : 'autre'}, ${ok.s} → ${ok.e}, ${ok.n} abonnement(s)` : res.msg, ok && res.value === c.subs[0].id && ok.s === '2026-09-21' && ok.e === '2026-11-06' && ok.n === 1);
+      if (res.ok) c.subs[0].end = ok.e;
     }
     const over = clients.find((c) => c.group === 'A5' && c.subs[0]);
     const x = await sim.rpc(admin, 'create_subscription_weeks', [over.id, plans[over.plan], '2026-10-12', 1, null, null, null]);
@@ -695,7 +701,15 @@ const LOCK = 20 * 3600;
       if (res.ok) c.subs.push({ id: res.value, start: '2026-10-19', end: row.e, status: 'active', plan: c.plan, blockedUntil: null });
     }
     // renouveler avec changement de formule
-    const c = clients.find((x) => x.group === 'B' && x.subs.length === 1);
+    // Abonnement en cours : changer de formule en le rallongeant est refusé (on annule l'ancien puis on en crée un nouveau)
+    const running = clients.find((x) => x.group === 'B' && x.subs.length === 1 && x.subs[0].end === '2026-11-06');
+    if (running) {
+      const otherPlan = running.plan === 'F1' ? 'F2' : 'F1';
+      const refused = await sim.rpc(admin, 'renew_subscription_weeks', [running.id, 2, plans[otherPlan], null, null]);
+      C('S6b', 'abonnements', 'rallonger en changeant de formule un abonnement en cours', 'refusé', refused.ok ? 'accepté' : refused.msg, expectRejected(refused, /changer de formule/));
+    }
+    // Abonnement terminé : renouveler avec un changement de formule crée un nouvel abonnement
+    const c = clients.find((x) => x.group === 'B' && x.subs.length === 1 && x.subs[0].end === '2026-10-09');
     if (c) {
       const other = c.plan === 'F1' ? 'F2' : 'F1';
       const res = await sim.rpc(admin, 'renew_subscription_weeks', [c.id, 2, plans[other], '2026-10-19', null]);

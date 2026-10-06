@@ -76,11 +76,11 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   C('V5', 'dimanche : commande du lundi acceptée', 'acceptée', ok1.ok && ok2.ok ? 'acceptée' : (ok1.msg || ok2.msg), ok1.ok && ok2.ok, '2026-10-04');
 
   const secondPlat = sun.menu.options.filter((o) => o.category === 'plat')[1].option_id;
-  for (const c of [a5[3], a5[4], a5[5]]) {
+  for (const c of a5.slice(3, 9)) {
     await sim.rpc(c.uid, 'submit_my_order', [sun.menu.id, secondPlat, pick(sun, 'accompagnement'), pick(sun, 'viande')]);
   }
   const notSecond = (await sim.one(`select count(*)::int n from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = '2026-10-05' and o.is_default and o.plat_option_id <> $1`, [secondPlat])).n;
-  C('V21', 'les repas par défaut suivent les choix : 3 clients choisissent le 2e plat → tous les défauts passent au 2e plat', '0 défaut sur un autre plat', String(notSecond), notSecond === 0 && (await defaultsCount('2026-10-05')) > 0, '2026-10-04');
+  C('V21', 'les repas par défaut suivent les choix : 6 clients choisissent le 2e plat (seuil de 5 atteint) → tous les défauts passent au 2e plat', '0 défaut sur un autre plat', String(notSecond), notSecond === 0 && (await defaultsCount('2026-10-05')) > 0, '2026-10-04');
 
   // Le client dont l'abonnement commence lundi ne commande pas son premier repas
   const first = g.find((c) => c.subs[0].start === '2026-10-05');
@@ -233,6 +233,110 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   const got = (await sim.one(`select count(*)::int n from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = '2026-10-14' and o.customer_id = $1`, [suspended.id])).n;
   const others = await defaultsCount('2026-10-14');
   C('V26', 'abonnement suspendu : pas de repas par défaut pour sa livraison annulée, les autres en ont un', '0 pour lui, > 0 pour les autres', `${got} pour lui, ${others} au total`, susp.ok && pub14.ok && got === 0 && others > 0, '2026-10-11');
+
+  // ── Dernier jour d'abonnement : « expiré » seulement à partir du lendemain de la fin
+  let authId = (await sim.one('select auth_user_id as u from public.customers where id = $1', [weekly.id])).u;
+  if (!authId) {
+    authId = require('crypto').randomUUID();
+    await sim.q('insert into auth.users (id, email) values ($1, $2)', [authId, `c-${weekly.id}@clients.yourfood.invalid`]);
+    await sim.q('update public.customers set auth_user_id = $1 where id = $2', [authId, weekly.id]);
+  }
+  await sim.clock('2026-10-15', '10:00:00');
+  const thu = (await sim.rpc(authId, 'my_today_menu', [])).value;
+  await sim.clock('2026-10-16', '10:00:00');
+  const fri = (await sim.rpc(authId, 'my_today_menu', [])).value;
+  C('V31', "dernier jour d'abonnement (vendredi) : signalé « dernier jour », pas encore « expiré » côté état d'aujourd'hui ; la veille rien de tel", 'jeudi : last_day faux ; vendredi : last_day vrai, fin le 2026-10-16', `jeudi ${thu.last_day}, vendredi ${fri.last_day}, fin ${fri.subscription.end_date}`, thu.last_day === false && fri.last_day === true && fri.subscription.end_date === '2026-10-16', '2026-10-16');
+
+  // ── Abonnements à renouveler : ceux qui se terminent bientôt et n'ont pas de suite
+  await sim.clock('2026-10-14', '09:00:00');
+  const toRenew = (await sim.rpc(admin, 'subscriptions_to_renew', [])).value;
+  C('V32', "mercredi : l'abonnement d'une semaine qui finit vendredi est à renouveler (il n'a pas de suite)", 'présent dans la liste', toRenew.some((x) => x.customer_id === weekly.id) ? 'présent' : 'absent', toRenew.some((x) => x.customer_id === weekly.id), '2026-10-14');
+  const subBefore = await sim.one('select start_date::text as s, end_date::text as e, applied_price::numeric as p from public.subscriptions where id = $1', [wsub.value]);
+  const renewed = await sim.rpc(admin, 'renew_subscription_weeks', [weekly.id, 1]);
+  const after = (await sim.rpc(admin, 'subscriptions_to_renew', [])).value;
+  const subAfter = await sim.one('select start_date::text as s, end_date::text as e, applied_price::numeric as p from public.subscriptions where id = $1', [wsub.value]);
+  const nbSubs = (await sim.one("select count(*)::int n from public.subscriptions where customer_id = $1 and admin_status <> 'cancelled'", [weekly.id])).n;
+  const nbDeliveries = (await sim.one("select count(*)::int n from public.deliveries where subscription_id = $1 and status <> 'cancelled'", [wsub.value])).n;
+  C('V33', 'renouveler un abonnement en cours le rallonge d\'une semaine : même abonnement, fin + 7 jours, prix doublé, 10 livraisons, plus dans la liste',
+    'même abonnement, 2026-10-12 → 2026-10-23, prix ×2, 10 livraisons, absent de la liste',
+    `${renewed.ok && renewed.value === wsub.value ? 'même abonnement' : 'autre : ' + (renewed.msg || renewed.value)}, ${subAfter.s} → ${subAfter.e}, prix ${Number(subBefore.p)} → ${Number(subAfter.p)}, ${nbDeliveries} livraisons, ${nbSubs} abonnement(s), ${after.some((x) => x.customer_id === weekly.id) ? 'présent' : 'absent'}`,
+    renewed.ok && renewed.value === wsub.value && subAfter.s === '2026-10-12' && subAfter.e === '2026-10-23' && Number(subAfter.p) === 2 * Number(subBefore.p) && nbDeliveries === 10 && nbSubs === 1 && !after.some((x) => x.customer_id === weekly.id), '2026-10-14');
+  const denied = await sim.rpc(a5[0].uid, 'subscriptions_to_renew', []);
+  C('V34', 'un client ne peut pas lire la liste des renouvellements', 'refusé', denied.ok ? 'accepté' : denied.msg, rejected(denied, /Permission denied/), '2026-10-14');
+
+  // ── Un seul abonnement en cours par client : on le rallonge, on le modifie (avec motif) ou on le supprime
+  const second = await sim.rpc(admin, 'create_subscription_weeks', [weekly.id, plans.F2, '2026-10-26', 1, null, null, null]);
+  C('V35', 'créer un deuxième abonnement pour un client qui en a un en cours : refusé', 'refusé « abonnement en cours »', second.ok ? 'accepté' : second.msg, rejected(second, /abonnement en cours/), '2026-10-14');
+  const otherPlan = await sim.rpc(admin, 'renew_subscription_weeks', [weekly.id, 1, plans.F1, null, null]);
+  C('V36', 'rallonger en changeant de formule : refusé (on annule l\'ancien puis on en crée un nouveau)', 'refusé « changer de formule »', otherPlan.ok ? 'accepté' : otherPlan.msg, rejected(otherPlan, /changer de formule/), '2026-10-14');
+  const logs = await sim.q("select action, reason, details from public.subscription_changes where subscription_id = $1 order by created_at", [wsub.value]);
+  C('V37', 'le rallongement est journalisé (semaines, fin avant / après, prix avant / après)', '1 ligne « extended », 1 semaine, fin 2026-10-16 → 2026-10-23', logs.map((l) => `${l.action} ${l.details.weeks} sem. ${l.details.end_before} → ${l.details.end_after}`).join(' | '), logs.length === 1 && logs[0].action === 'extended' && logs[0].details.weeks === 1 && logs[0].details.end_after === '2026-10-23', '2026-10-14');
+  const extNoPerm = await sim.rpc(a5[0].uid, 'extend_subscription_weeks', [wsub.value, 1, null]);
+  C('V38', 'un client ne peut ni rallonger, ni modifier, ni supprimer un abonnement', 'refusés', [extNoPerm, await sim.rpc(a5[0].uid, 'modify_subscription', [wsub.value, null, '2026-10-30', 'x']), await sim.rpc(a5[0].uid, 'delete_subscription', [wsub.value, 'x'])].map((r2) => (r2.ok ? 'accepté' : 'refusé')).join(' / '),
+    !extNoPerm.ok && /Permission denied/.test(extNoPerm.msg), '2026-10-14');
+
+  const noReason = await sim.rpc(admin, 'modify_subscription', [wsub.value, '2026-10-13', null, ' ']);
+  const changed = await sim.rpc(admin, 'modify_subscription', [wsub.value, '2026-10-13', null, 'Il commence mardi']);
+  const mod = await sim.one("select start_date::text as s, applied_duration_value as w, (select count(*)::int from public.deliveries d where d.subscription_id = $1 and d.status <> 'cancelled') as n, (select count(*)::int from public.deliveries d where d.subscription_id = $1 and d.delivery_date = '2026-10-12') as lundi from public.subscriptions where id = $1", [wsub.value]);
+  C('V39', 'modifier la date de début : motif obligatoire ; la livraison du lundi disparaît, les autres restent (9 livraisons)', 'sans motif refusé ; début 2026-10-13, 9 livraisons, aucune le 12',
+    `${noReason.ok ? 'sans motif accepté' : 'sans motif refusé'} ; ${changed.ok ? 'début ' + mod.s + ', ' + mod.n + ' livraisons, ' + mod.lundi + ' le 12' : changed.msg}`,
+    rejected(noReason, /raison/) && changed.ok && mod.s === '2026-10-13' && mod.n === 9 && mod.lundi === 0, '2026-10-14');
+  const logs2 = await sim.q("select action, reason from public.subscription_changes where subscription_id = $1 order by created_at", [wsub.value]);
+  C('V40', 'la modification est journalisée avec son motif', 'extended puis modified (« Il commence mardi »)', logs2.map((l) => l.action + (l.reason ? ' (' + l.reason + ')' : '')).join(' puis '), logs2.length === 2 && logs2[1].action === 'modified' && logs2[1].reason === 'Il commence mardi', '2026-10-14');
+
+  const spare = clients.find((c) => c.group === 'F' && c !== weekly && c !== monthly && !c.subs.length);
+  const temp = await sim.rpc(admin, 'create_subscription_weeks', [spare.id, plans.F1, '2026-10-26', 1, null, null, null]);
+  const noWhy = await sim.rpc(admin, 'delete_subscription', [temp.value, '']);
+  await sim.q("update public.deliveries set status = 'delivered' where subscription_id = $1 and delivery_date = '2026-10-26'", [temp.value]);
+  const servedDel = await sim.rpc(admin, 'delete_subscription', [temp.value, 'Erreur de saisie']);
+  await sim.q("update public.deliveries set status = 'scheduled' where subscription_id = $1", [temp.value]);
+  const gone = await sim.rpc(admin, 'delete_subscription', [temp.value, 'Erreur de saisie']);
+  const left = (await sim.one('select (select count(*)::int from public.subscriptions where id = $1) as s, (select count(*)::int from public.deliveries where subscription_id = $1) as d', [temp.value]));
+  const delLog = await sim.one("select details ->> 'customer' as c, reason from public.subscription_changes where subscription_id = $1 and action = 'deleted'", [temp.value]);
+  C('V41', 'supprimer : motif obligatoire, refusé si un repas a été livré, sinon supprimé avec ses livraisons et conservé dans le journal', 'sans motif refusé, repas livré refusé, puis supprimé (0 abonnement, 0 livraison, journal)',
+    `${noWhy.ok ? 'sans motif accepté' : 'sans motif refusé'}, ${servedDel.ok ? 'livré accepté' : 'livré refusé'}, ${gone.ok ? 'supprimé' : gone.msg}, ${left.s} abonnement, ${left.d} livraison, journal ${delLog ? delLog.c + ' / ' + delLog.reason : 'absent'}`,
+    temp.ok && rejected(noWhy, /raison/) && rejected(servedDel, /préparés ou livrés/) && gone.ok && left.s === 0 && left.d === 0 && Boolean(delLog), '2026-10-14');
+  const created26 = await sim.rpc(admin, 'create_subscription_weeks', [spare.id, plans.F1, '2026-10-26', 1, null, null, null]);
+  const pm = await sim.one('select id from public.payment_methods limit 1');
+  await sim.rpc(admin, 'record_payment', [W.org, spare.id, created26.value, 1000, 'CDF', pm.id, null, '2026-10-14', null]);
+  const hasPay = (await sim.one('select count(*)::int n from public.payments where subscription_id = $1', [created26.value])).n;
+  const payRefused = await sim.rpc(admin, 'delete_subscription', [created26.value, 'Test']);
+  C('V42', 'supprimer un abonnement qui a un paiement : refusé (on l\'annule)', 'refusé « paiements »', hasPay ? (payRefused.ok ? 'accepté' : payRefused.msg) : 'paiement non créé (test non concluant)', hasPay > 0 && rejected(payRefused, /paiements/), '2026-10-14');
+  const reRenew = await sim.rpc(admin, 'renew_subscription_weeks', [created26.value ? spare.id : spare.id, 2, null, null, null]);
+  const ext2 = reRenew.ok ? (await sim.one('select end_date::text as e from public.subscriptions where id = $1', [created26.value])).e : reRenew.msg;
+  C('V43', 'abonnement qui commence lundi 26 : « renouveler » le rallonge de 2 semaines (fin 2026-11-13), pas de deuxième abonnement', 'fin 2026-11-13', String(ext2), ext2 === '2026-11-13', '2026-10-14');
+
+  // ── Seuil de votes : un ou deux clients ne décident pas pour tous (5 votes par défaut, réglable)
+  await sim.clock('2026-10-12', '10:00:00');
+  const pubT = await sim.rpc(admin, 'publish_menu', ['2026-10-15', ids(names), '13:00']);
+  const menuT = await sim.one("select id from public.daily_menus where menu_date = '2026-10-15'");
+  const byCat = (cat) => sim.q(`select o.id from public.menu_options o join public.catalog_items c on c.id = o.catalog_item_id where o.daily_menu_id = $1 and c.category = $2 order by c.name asc`, [menuT.id, cat]);
+  const platsT = await byCat('plat'); const accsT = await byCat('accompagnement'); const meatT = await byCat('viande');
+  const offFirst = async () => (await sim.one("select count(*)::int n from public.meal_orders o where o.daily_menu_id = $1 and o.is_default and o.plat_option_id <> $2", [menuT.id, platsT[0].id])).n;
+  const defaultsT = async () => (await sim.one('select count(*)::int n from public.meal_orders o where o.daily_menu_id = $1 and o.is_default', [menuT.id])).n;
+  await sim.clock('2026-10-14', '09:30:00');
+  const pool = a5.filter((c) => c.id !== suspended.id).slice(8);
+  let voted = 0;
+  const vote = async (c) => {
+    const v = (await sim.rpc(c.uid, 'my_today_menu', [])).value;
+    const res = await sim.rpc(c.uid, 'submit_my_order', [menuT.id, platsT[1].id, accsT[0].id, v.meat_allowed_today ? meatT[0].id : null]);
+    if (res.ok) voted++;
+    return res.ok;
+  };
+  for (const c of pool) { if (voted >= 3) break; await vote(c); }
+  const dBelow = await defaultsT();
+  C('V27', '3 clients choisissent le 2e plat (sous le seuil de 5) : les repas par défaut restent le 1er plat par ordre alphabétique', '0 défaut sur le 2e plat', `${voted} votes, ${await offFirst()} défaut(s) sur un autre plat, ${dBelow} défauts`, pubT.ok && voted === 3 && (await offFirst()) === 0 && dBelow > 0, '2026-10-14');
+  for (const c of pool) { if (voted >= 5) break; if (!(await sim.one('select 1 as x from public.meal_orders where daily_menu_id = $1 and customer_id = $2 and not is_default', [menuT.id, c.id]))) await vote(c); }
+  const dAt = await defaultsT();
+  C('V28', 'à 5 votes le seuil est atteint : tous les repas par défaut passent au 2e plat, le plus choisi', 'tous les défauts sur le 2e plat', `${voted} votes, ${await offFirst()} / ${dAt} défauts sur le 2e plat`, voted === 5 && dAt > 0 && (await offFirst()) === dAt, '2026-10-14');
+  const raise = await sim.rpc(admin, 'set_default_min_votes', [10]);
+  const dRaised = await offFirst();
+  const read = await sim.rpc(admin, 'get_default_min_votes', []);
+  C('V29', 'le seuil est réglable : à 10, les 5 votes ne suffisent plus et les défauts reviennent au 1er plat tout de suite', 'seuil 10, 0 défaut sur le 2e plat', `seuil ${read.ok ? read.value : read.msg}, ${dRaised} défaut(s) sur le 2e plat`, raise.ok && read.ok && read.value === 10 && dRaised === 0, '2026-10-14');
+  const badValue = await sim.rpc(admin, 'set_default_min_votes', [101]);
+  const clientSet = await sim.rpc(a5[0].uid, 'set_default_min_votes', [1]);
+  C('V30', 'seuil hors limites ou demandé par un client : refusé', 'refusés', `${badValue.ok ? 'accepté' : 'refusé'} / ${clientSet.ok ? 'accepté' : 'refusé'}`, rejected(badValue, /entre 0 et 100/) && rejected(clientSet, /Permission denied/), '2026-10-14');
+  await sim.rpc(admin, 'set_default_min_votes', [5]);
 
   // ── La limite de commande se réglera plus tard : réglage « order_limit_time » (vide = aucune)
   const org = W.org;
