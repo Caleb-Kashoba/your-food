@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { Chips } from '@/components/ui/Chips';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { EmptyView, ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -11,13 +13,35 @@ import { formatLocalDate } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { formatMoney } from '@/lib/money';
 import { colors, radii, spacing } from '@/theme/colors';
+import type { SubscriptionEffectiveStatus } from '@/types/domain';
 
 const subscriptionRealtimeKeys = [['subscriptions']] as const;
+
+type StateFilter = 'all' | 'active' | 'expiring' | 'expired';
+const STATE_FILTERS: { value: StateFilter; label: string }[] = [
+  { value: 'all', label: 'Tous' },
+  { value: 'active', label: 'En cours' },
+  { value: 'expiring', label: 'Finissent bientôt' },
+  { value: 'expired', label: 'Expirés' }
+];
+// Mêmes regroupements que les compteurs du tableau de bord
+const STATES: Record<Exclude<StateFilter, 'all'>, SubscriptionEffectiveStatus[]> = {
+  active: ['active', 'expiring_soon', 'expires_today'],
+  expiring: ['expiring_soon', 'expires_today'],
+  expired: ['expired']
+};
+function isStateFilter(value: string | undefined): value is StateFilter {
+  return STATE_FILTERS.some((option) => option.value === value);
+}
 
 export default function SubscriptionsScreen() {
   const router = useRouter();
   const { member } = useAuth();
   const subscriptions = useQuery({ queryKey: ['subscriptions'], queryFn: () => listSubscriptions() });
+  const params = useLocalSearchParams<{ state?: string }>();
+  // Le choix fait ici prime ; un lien qui apporte un autre filtre le remplace
+  const [picked, setPicked] = useState<{ from: string | undefined; state: StateFilter } | null>(null);
+  const state: StateFilter = picked && picked.from === params.state ? picked.state : isStateFilter(params.state) ? params.state : 'all';
   useTableRealtime('subscriptions', member?.organizationId, subscriptionRealtimeKeys);
   useTableRealtime('payments', member?.organizationId, subscriptionRealtimeKeys);
   if (subscriptions.isLoading) return <LoadingView />;
@@ -27,9 +51,10 @@ export default function SubscriptionsScreen() {
     <View style={styles.page}>
       <FlatList
         contentContainerStyle={styles.list}
-        data={subscriptions.data}
+        data={state === 'all' ? subscriptions.data : subscriptions.data?.filter((item) => STATES[state].includes(item.effectiveStatus))}
+        ListHeaderComponent={<Chips label="Filtrer par état" onChange={(value) => setPicked({ from: params.state, state: value })} options={STATE_FILTERS} value={state} />}
         keyExtractor={(item) => item.id}
-        ListEmptyComponent={<EmptyView message="Créez le premier abonnement depuis une fiche client." title="Aucun abonnement" />}
+        ListEmptyComponent={<EmptyView message={state === 'all' ? 'Créez le premier abonnement depuis une fiche client.' : 'Aucun abonnement dans cet état.'} title="Aucun abonnement" />}
         renderItem={({ item }) => (
           <Pressable onPress={() => router.push({ pathname: '/subscriptions/[id]', params: { id: item.id } })} style={styles.item}>
             <View style={styles.header}>
@@ -44,7 +69,7 @@ export default function SubscriptionsScreen() {
           </Pressable>
         )}
       />
-      <Pressable onPress={() => router.push('/subscriptions/new')} style={styles.fab}><Text style={styles.fabText}>＋</Text></Pressable>
+      <Pressable accessibilityLabel="Créer un abonnement" accessibilityRole="button" onPress={() => router.push('/subscriptions/new')} style={styles.fab}><Text style={styles.fabText}>＋</Text></Pressable>
     </View>
   );
 }

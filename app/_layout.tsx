@@ -97,7 +97,7 @@ function AppNavigator() {
         <Stack.Screen name="bootstrap" options={{ title: 'Initialisation sécurisée', headerBackVisible: false }} />
         <Stack.Screen name="customers/access" options={{ title: 'Accès des clients' }} />
         <Stack.Screen name="catalog/index" options={{ title: 'Carte des plats' }} />
-        <Stack.Screen name="menus/index" options={{ title: 'Menus' }} />
+        <Stack.Screen name="menus/index" options={{ title: 'Menus de la semaine' }} />
         <Stack.Screen name="menus/publish" options={{ title: 'Publier un menu' }} />
         <Stack.Screen name="orders/live" options={{ title: 'Commandes du jour' }} />
         <Stack.Screen name="reviews/index" options={{ title: 'Avis des clients' }} />
@@ -117,7 +117,7 @@ function AppNavigator() {
         <Stack.Screen name="whatsapp/compose" options={{ title: 'Message WhatsApp' }} />
         <Stack.Screen name="users/index" options={{ title: 'Utilisateurs' }} />
         <Stack.Screen name="settings/index" options={{ title: 'Paramètres' }} />
-        <Stack.Screen name="system/audit" options={{ title: 'Journal d’audit' }} />
+        <Stack.Screen name="system/audit" options={{ title: 'Journal d’activité' }} />
         <Stack.Screen name="system/permissions" options={{ title: 'Permissions globales' }} />
         <Stack.Screen name="system/diagnostics" options={{ title: 'Diagnostic système' }} />
         <Stack.Screen name="coming-soon" options={{ title: 'Bientôt disponible' }} />

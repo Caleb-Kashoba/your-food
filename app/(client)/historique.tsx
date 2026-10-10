@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -34,8 +34,16 @@ export default function ClientHistoryScreen() {
   const from = range === 'all' ? undefined : addLocalDays(localDateKey(), -Number(range));
   const history = useQuery({
     queryKey: ['client', 'history', { query, range }],
-    queryFn: () => getHistory({ ...(from ? { from } : {}), ...(query ? { q: query } : {}) })
+    queryFn: () => getHistory({ ...(from ? { from } : {}), ...(query ? { q: query } : {}) }),
+    placeholderData: keepPreviousData
   });
+
+  const filtered = query !== '' || range !== 'all';
+  const resetFilters = () => {
+    setSearch('');
+    setQuery('');
+    setRange('all');
+  };
 
   return (
     <Screen>
@@ -62,7 +70,10 @@ export default function ClientHistoryScreen() {
       {history.isLoading ? <LoadingView /> : null}
       {history.error ? <ErrorView message={getErrorMessage(history.error)} onRetry={() => void history.refetch()} /> : null}
       {history.data?.length === 0 ? (
-        <EmptyView message={query || range !== 'all' ? 'Essaie un autre plat ou une autre période.' : 'Tes repas servis apparaîtront ici.'} title="Rien à afficher" />
+        <>
+          <EmptyView message={filtered ? 'Essaie un autre plat ou une autre période.' : 'Tes repas servis apparaîtront ici.'} title="Rien à afficher" />
+          {filtered ? <AppButton label="Effacer les filtres" onPress={resetFilters} variant="secondary" /> : null}
+        </>
       ) : null}
       {history.data?.map((entry) => <HistoryCard entry={entry} key={entry.order_id} />)}
     </Screen>
@@ -100,7 +111,7 @@ function HistoryCard({ entry }: { entry: HistoryEntry }) {
       {entry.rating ? <Stars label="Ta note" value={entry.rating} size={20} /> : null}
       {entry.comment ? <Text style={styles.comment}>« {entry.comment} »</Text> : null}
       {entry.review_possible && !open ? (
-        <Pressable accessibilityRole="button" onPress={() => setOpen(true)}>
+        <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setOpen(true)} style={styles.linkTarget}>
           <Text style={styles.link}>Donner mon avis</Text>
         </Pressable>
       ) : null}
@@ -129,7 +140,7 @@ const styles = StyleSheet.create({
   searchBox: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.round, paddingHorizontal: spacing.md },
   searchInput: { flex: 1, minHeight: 48, color: colors.text, fontSize: 15 },
   chips: { flexDirection: 'row', gap: spacing.sm },
-  chip: { backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.round, paddingHorizontal: spacing.md, paddingVertical: 9 },
+  chip: { minHeight: 44, justifyContent: 'center', backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.round, paddingHorizontal: spacing.md, paddingVertical: 9 },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { color: colors.text, fontSize: 13, fontWeight: '700' },
   chipTextActive: { color: colors.white },
@@ -144,6 +155,7 @@ const styles = StyleSheet.create({
   meal: { color: colors.text, fontSize: 15 },
   muted: { color: colors.muted, fontSize: 14 },
   comment: { color: colors.muted, fontSize: 14, fontStyle: 'italic' },
+  linkTarget: { minHeight: 44, justifyContent: 'center' },
   link: { color: colors.primary, fontSize: 14, fontWeight: '800' },
   reviewBox: { gap: spacing.sm, borderTopColor: colors.border, borderTopWidth: 1, paddingTop: spacing.sm },
   input: { minHeight: 48, borderColor: colors.border, borderWidth: 1, borderRadius: radii.md, color: colors.text, fontSize: 15, paddingHorizontal: spacing.md, backgroundColor: colors.surface },

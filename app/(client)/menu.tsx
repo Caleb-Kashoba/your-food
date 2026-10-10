@@ -48,6 +48,15 @@ const NOTICES: Partial<Record<ClientMenuState, { title: string; text: string; to
   premier_jour: { title: 'Ton premier repas', text: 'Ton abonnement commence demain : on choisit ton premier repas pour toi. Ensuite, tu choisis la veille pour le lendemain.', tone: 'info' }
 };
 
+const CATEGORY_ARTICLE: Record<MealCategory, string> = { plat: 'le plat', accompagnement: 'l’accompagnement', viande: 'la viande' };
+
+/** « le plat, l’accompagnement et la viande » */
+function listCategories(categories: MealCategory[]): string {
+  const labels = categories.map((category) => CATEGORY_ARTICLE[category]);
+  if (labels.length <= 1) return labels.join('');
+  return `${labels.slice(0, -1).join(', ')} et ${labels[labels.length - 1]}`;
+}
+
 const DELIVERY_LABEL: Record<TodayMeal['delivery_status'], string> = {
   scheduled: 'en préparation',
   preparing: 'en préparation',
@@ -124,7 +133,7 @@ export default function ClientMenuScreen() {
   });
 
   if (menuQuery.isLoading) return <LoadingView label="Ouverture du menu…" />;
-  if (menuQuery.error || !data) return <ErrorView message={getErrorMessage(menuQuery.error)} onRetry={() => void menuQuery.refetch()} />;
+  if (!data) return <ErrorView message={getErrorMessage(menuQuery.error)} onRetry={() => void menuQuery.refetch()} />;
 
   const state = deriveMenuState(data, resuming);
   const editable = isEditable(state);
@@ -132,6 +141,7 @@ export default function ClientMenuScreen() {
   const options = data.menu?.options ?? [];
   const hasActiveOrder = data.order?.status === 'confirmed';
   const complete = isComplete(data, picks);
+  const missing = required.filter((category) => picks[category] === undefined);
   const unchanged = hasActiveOrder && !data.order?.is_default && !picksChanged(data, picks);
   const left = secondsLeft(data, state, now, data.device_offset_ms);
   const notice = NOTICES[state];
@@ -146,6 +156,7 @@ export default function ClientMenuScreen() {
 
   return (
     <Screen>
+      {menuQuery.error ? <Text style={styles.stale}>Connexion instable : informations peut-être pas à jour.</Text> : null}
       <View style={styles.top}>
         <BrandLogo compact />
         {data.subscription.plan_name ? <View style={styles.plan}><Text style={styles.planText}>{data.subscription.plan_name}</Text></View> : null}
@@ -260,12 +271,15 @@ export default function ClientMenuScreen() {
             unchanged ? (
               <AppButton disabled label="Repas confirmé" variant="secondary" />
             ) : (
-              <AppButton
-                disabled={!complete}
-                label={hasActiveOrder && !data.order?.is_default ? 'Modifier mon repas' : 'Confirmer mon repas'}
-                loading={order.isPending}
-                onPress={() => order.mutate(data)}
-              />
+              <>
+                {!complete ? <Text style={styles.missing}>Il te reste à choisir : {listCategories(missing)}</Text> : null}
+                <AppButton
+                  disabled={!complete}
+                  label={hasActiveOrder && !data.order?.is_default ? 'Modifier mon repas' : 'Confirmer mon repas'}
+                  loading={order.isPending}
+                  onPress={() => order.mutate(data)}
+                />
+              </>
             )
           ) : (
             <AppButton disabled label={state === 'annule' ? 'Repas annulé' : 'Bon appétit'} variant="secondary" />
@@ -424,6 +438,8 @@ const styles = StyleSheet.create({
   banner: { borderRadius: radii.lg, gap: 2, padding: spacing.md },
   bannerTitle: { fontSize: 15, fontWeight: '900' },
   bannerText: { color: colors.text, fontSize: 14, lineHeight: 20 },
+  stale: { color: colors.muted, fontSize: 13 },
+  missing: { color: colors.warning, fontSize: 14, fontWeight: '700', textAlign: 'center' },
   feedback: { color: colors.success, fontSize: 15, fontWeight: '800' },
   error: { color: colors.danger, fontSize: 14, fontWeight: '600' },
   actions: { gap: spacing.sm, marginTop: spacing.xs },

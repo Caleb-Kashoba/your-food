@@ -5,6 +5,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { AppButton } from '@/components/ui/AppButton';
 import { ChipGroup } from '@/components/ui/ChipGroup';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { getStaffOrderContext, staffCancelOrder, staffSetOrder, type StaffOrderContext } from '@/features/orders/orders.service';
 import { capitalizeFirst, formatDayMonth } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
@@ -26,6 +27,7 @@ export function StaffOrderSheet({ customerId, customerName, date, onClose }: Pro
   const context = useQuery({ queryKey: ['orders', 'staff-context', customerId, date], queryFn: () => getStaffOrderContext(customerId, date) });
   const [picks, setPicks] = useState<Partial<Record<Category, string>>>({});
   const [error, setError] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   const data = context.data;
   const saved: Partial<Record<Category, string | null>> =
@@ -34,7 +36,8 @@ export function StaffOrderSheet({ customerId, customerName, date, onClose }: Pro
       : {};
   const value = (category: Category): string | null => picks[category] ?? saved[category] ?? null;
   const required: Category[] = data?.meat_allowed ? ['plat', 'accompagnement', 'viande'] : ['plat', 'accompagnement'];
-  const complete = required.every((category) => value(category) !== null);
+  const missing = required.filter((category) => value(category) === null).map((category) => TITLE[category]);
+  const complete = missing.length === 0;
 
   const done = async () => {
     await queryClient.invalidateQueries({ queryKey: ['orders'] });
@@ -56,7 +59,10 @@ export function StaffOrderSheet({ customerId, customerName, date, onClose }: Pro
   const cancel = useMutation({
     mutationFn: () => staffCancelOrder(customerId, date),
     onSuccess: done,
-    onError: (caught) => setError(getErrorMessage(caught))
+    onError: (caught) => {
+      setConfirmCancel(false);
+      setError(getErrorMessage(caught));
+    }
   });
 
   return (
@@ -68,7 +74,7 @@ export function StaffOrderSheet({ customerId, customerName, date, onClose }: Pro
               <Text style={styles.title}>Repas de {customerName}</Text>
               <Text style={styles.subtitle}>{capitalizeFirst(formatDayMonth(date))}</Text>
             </View>
-            <Pressable accessibilityLabel="Fermer" accessibilityRole="button" onPress={onClose}>
+            <Pressable accessibilityLabel="Fermer" accessibilityRole="button" hitSlop={10} onPress={onClose}>
               <Ionicons color={colors.muted} name="close" size={26} />
             </Pressable>
           </View>
@@ -90,17 +96,30 @@ export function StaffOrderSheet({ customerId, customerName, date, onClose }: Pro
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           {data?.editable ? (
             <View style={styles.actions}>
+              {!complete ? <Text style={styles.missing}>{`Il manque : ${missing.join(', ')}`}</Text> : null}
               <AppButton
                 disabled={!complete}
                 label={data.order?.status === 'confirmed' && !data.order.is_default ? 'Enregistrer la modification' : 'Enregistrer ce repas'}
                 loading={save.isPending}
                 onPress={() => save.mutate()}
               />
-              <AppButton label="Annuler le repas de ce client" loading={cancel.isPending} onPress={() => cancel.mutate()} variant="ghost" />
+              <AppButton label="Annuler le repas de ce client" loading={cancel.isPending} onPress={() => setConfirmCancel(true)} variant="ghost" />
             </View>
           ) : null}
         </Pressable>
       </Pressable>
+
+      <ConfirmModal
+        cancelLabel="Garder le repas"
+        confirmLabel="Annuler le repas"
+        danger
+        loading={cancel.isPending}
+        message="Il ne sera pas livré ce jour-là. Tu pourras ressaisir son repas tant que le bol n’est pas prêt."
+        onCancel={() => setConfirmCancel(false)}
+        onConfirm={() => cancel.mutate()}
+        title="Annuler le repas de ce client ?"
+        visible={confirmCancel}
+      />
     </Modal>
   );
 }
@@ -137,5 +156,6 @@ const styles = StyleSheet.create({
   body: { gap: spacing.lg, paddingBottom: spacing.sm },
   note: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   error: { color: colors.danger, fontSize: 14, fontWeight: '600' },
-  actions: { gap: spacing.xs }
+  missing: { color: colors.warning, fontSize: 14, fontWeight: '700' },
+  actions: { gap: spacing.md }
 });

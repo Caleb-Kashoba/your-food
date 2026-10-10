@@ -8,6 +8,7 @@ import { AppInput } from '@/components/ui/AppInput';
 import { DateField } from '@/components/ui/DateField';
 import { Card } from '@/components/ui/Card';
 import { Chips } from '@/components/ui/Chips';
+import { Section } from '@/components/ui/Section';
 import { Screen } from '@/components/ui/Screen';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -28,10 +29,10 @@ import {
   updateSubscriptionNotes,
   type SubscriptionChange
 } from '@/features/subscriptions/subscriptions.service';
-import { addLocalDays, formatLocalDate } from '@/lib/dates';
+import { addLocalDays, formatDayChip, formatLocalDate } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { formatMoney } from '@/lib/money';
-import { colors, spacing } from '@/theme/colors';
+import { colors, radii, spacing } from '@/theme/colors';
 import type { SubscriptionAdminStatus } from '@/types/domain';
 
 const dayLabels = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -90,26 +91,43 @@ export default function SubscriptionDetailScreen() {
         </View>
         <StatusBadge status={item.effectiveStatus} />
       </View>
-      <Card style={styles.card}>
-        <Text style={styles.sectionTitle}>Période et service</Text>
-        <Info label="Début" value={formatLocalDate(item.startDate)} />
-        <Info label="Fin" value={formatLocalDate(item.endDate)} />
-        <Info label="Jours" value={item.serviceWeekdays.map((day) => dayLabels[day - 1]).join(' · ')} />
-        <Info label="Statut administratif" value={item.adminStatus} />
-      </Card>
-      <Card style={styles.card}>
-        <Text style={styles.sectionTitle}>Paiement</Text>
-        <Info label="Attendu" value={formatMoney(item.price, item.currency)} />
-        <Info label="Versé" value={formatMoney(item.amountPaid, item.currency)} />
-        <Info label="Restant" value={formatMoney(item.amountRemaining, item.currency)} />
+      {/* Synthèse : ce qu'il faut savoir d'un coup d'œil */}
+      <View style={styles.facts}>
+        <Fact label="Période" value={`${formatDayChip(item.startDate)} → ${formatDayChip(item.endDate)}`} />
+        <Fact label={item.daysUntilExpiration >= 0 ? 'Fin dans' : 'Terminé depuis'} value={`${Math.abs(item.daysUntilExpiration)} j`} />
+        <Fact label="Reste à payer" tone={item.amountRemaining > 0 ? 'danger' : 'ok'} value={formatMoney(item.amountRemaining, item.currency)} />
+      </View>
+      <Text style={styles.meta}>Livré : {item.serviceWeekdays.map((day) => dayLabels[day - 1]).join(' · ')}</Text>
+
+      {/* Action principale : prolonger (ou créer un nouvel abonnement s'il est terminé) */}
+      {hasPermission('subscriptions.write') ? (
+        item.adminStatus === 'cancelled' || item.effectiveStatus === 'expired' ? (
+          <Card style={styles.card}>
+            <Text style={styles.meta}>Cet abonnement est terminé. Pour continuer, créez un nouvel abonnement : celui-ci reste dans l’historique.</Text>
+            <AppButton label="Nouvel abonnement" onPress={() => router.push({ pathname: '/subscriptions/new', params: { customerId: item.customerId } })} />
+          </Card>
+        ) : (
+          <Card style={styles.card}>
+            <ContinueEditor customerId={item.customerId} endDate={item.endDate} id={id} onSaved={refresh} planId={item.planId} />
+          </Card>
+        )
+      ) : null}
+
+      {hasPermission('payments.write') && item.amountRemaining > 0 ? (
+        <AppButton
+          label={`Enregistrer un paiement (${formatMoney(item.amountRemaining, item.currency)} dus)`}
+          onPress={() => router.push({ pathname: '/payments/new', params: { subscriptionId: id, customerId: item.customerId } })}
+          variant="secondary"
+        />
+      ) : null}
+
+      <Section
+        badge={payments.data && payments.data.length > 0 ? String(payments.data.length) : null}
+        summary={`Versé ${formatMoney(item.amountPaid, item.currency)} sur ${formatMoney(item.price, item.currency)}`}
+        title="Paiements"
+      >
         <StatusBadge status={item.paymentState} />
-        {hasPermission('payments.write') && item.amountRemaining > 0 ? (
-          <AppButton
-            label="Enregistrer un paiement"
-            onPress={() => router.push({ pathname: '/payments/new', params: { subscriptionId: id, customerId: item.customerId } })}
-            variant="secondary"
-          />
-        ) : null}
+        {payments.data?.length === 0 ? <Text style={styles.meta}>Aucun paiement enregistré.</Text> : null}
         {payments.data?.map((payment) => (
           <View key={payment.id} style={styles.paymentRow}>
             <View style={styles.grow}>
@@ -119,36 +137,43 @@ export default function SubscriptionDetailScreen() {
             <StatusBadge status={payment.status} />
           </View>
         ))}
-      </Card>
+      </Section>
+
+      {/* Réglages occasionnels : repliés */}
       {hasPermission('subscriptions.write') ? (
-        <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>Gestion contrôlée</Text>
-          <AppInput label="Motif de suspension ou d’annulation" multiline onChangeText={setReason} value={reason} />
-          {item.adminStatus === 'suspended' ? (
-            <AppButton disabled={saving} label="Réactiver" onPress={() => changeStatus('active', 'Réactiver')} />
-          ) : item.adminStatus !== 'cancelled' ? (
-            <AppButton disabled={saving} label="Suspendre" onPress={() => changeStatus('suspended', 'Suspendre')} variant="secondary" />
+        <>
+          {item.adminStatus !== 'cancelled' && item.effectiveStatus !== 'expired' ? (
+            <Section summary={`Formule actuelle : ${item.planName}`} title="Changer la formule de cette période">
+              <PlanEditor endDate={item.endDate} id={id} onSaved={refresh} planId={item.planId} startDate={item.startDate} />
+            </Section>
           ) : null}
           {item.adminStatus !== 'cancelled' ? (
-            <AppButton disabled={saving} label="Annuler l’abonnement" onPress={() => changeStatus('cancelled', 'Annuler')} variant="danger" />
+            <Section summary={`Du ${formatLocalDate(item.startDate)} au ${formatLocalDate(item.endDate)}`} title="Modifier les dates">
+              <DatesEditor endDate={item.endDate} id={id} onSaved={refresh} startDate={item.startDate} />
+            </Section>
           ) : null}
-          {item.adminStatus === 'cancelled' || item.effectiveStatus === 'expired' ? (
-            <>
-              <Text style={styles.meta}>Cet abonnement est terminé. Pour continuer, crée un nouvel abonnement : celui-ci reste dans l’historique.</Text>
-              <AppButton label="Créer un nouvel abonnement" onPress={() => router.push({ pathname: '/subscriptions/new', params: { customerId: item.customerId } })} variant="secondary" />
-            </>
-          ) : (
-            <>
-              <ContinueEditor customerId={item.customerId} endDate={item.endDate} id={id} onSaved={refresh} planId={item.planId} />
-              <PlanEditor endDate={item.endDate} id={id} onSaved={refresh} planId={item.planId} startDate={item.startDate} />
-            </>
-          )}
-          {item.adminStatus !== 'cancelled' ? <DatesEditor endDate={item.endDate} id={id} onSaved={refresh} startDate={item.startDate} /> : null}
-          <PriceEditor currency={item.currency} currentPrice={item.price} id={id} onSaved={refresh} />
-          <NotesEditor id={id} initialNotes={item.notes ?? ''} onSaved={refresh} />
-          <DeleteEditor id={id} onDeleted={async () => { await refresh(); if (router.canGoBack()) router.back(); else router.replace('/subscriptions'); }} />
-          <Text style={styles.meta}>Un client n’a jamais deux abonnements en même temps : on rallonge celui-ci, on change sa formule, ou on prépare l’abonnement suivant (au plus un à venir). Les dates et le prix ne changent que par une décision motivée, conservée dans l’historique.</Text>
-        </Card>
+          <Section summary={`Prix actuel : ${formatMoney(item.price, item.currency)}`} title="Prix exceptionnel">
+            <PriceEditor currency={item.currency} currentPrice={item.price} id={id} onSaved={refresh} />
+          </Section>
+          <Section summary={item.notes ? item.notes : 'Aucune note'} title="Notes internes">
+            <NotesEditor id={id} initialNotes={item.notes ?? ''} onSaved={refresh} />
+          </Section>
+
+          {/* Zone sensible : suspendre, annuler, supprimer */}
+          <Section title="Zone sensible : suspendre, annuler, supprimer" tone="danger">
+            <AppInput label="Motif (obligatoire pour suspendre ou annuler)" multiline onChangeText={setReason} value={reason} />
+            {item.adminStatus === 'suspended' ? (
+              <AppButton disabled={saving} label="Réactiver" onPress={() => changeStatus('active', 'Réactiver')} />
+            ) : item.adminStatus !== 'cancelled' ? (
+              <AppButton disabled={saving} label="Suspendre" onPress={() => changeStatus('suspended', 'Suspendre')} variant="secondary" />
+            ) : null}
+            {item.adminStatus !== 'cancelled' ? (
+              <AppButton disabled={saving} label="Annuler l’abonnement" onPress={() => changeStatus('cancelled', 'Annuler')} variant="danger" />
+            ) : null}
+            <DeleteEditor id={id} onDeleted={async () => { await refresh(); if (router.canGoBack()) router.back(); else router.replace('/subscriptions'); }} />
+          </Section>
+          <Text style={styles.meta}>Un client n’a jamais deux abonnements en même temps : on prolonge celui-ci, on change sa formule, ou on prépare l’abonnement suivant. Chaque changement est gardé dans l’historique.</Text>
+        </>
       ) : null}
       {changes.data && changes.data.length > 0 ? (
         <Card style={styles.card}>
@@ -196,7 +221,7 @@ function ContinueEditor({ id, customerId, planId, endDate, onSaved }: { id: stri
   };
   return (
     <View style={styles.notesEditor}>
-      <Text style={styles.sectionTitle}>Continuer : rallonger ou enchaîner</Text>
+      <Text style={styles.sectionTitle}>Prolonger</Text>
       <Text style={styles.meta}>Même formule : l’abonnement est rallongé. Autre formule : un nouvel abonnement commence le lundi qui suit la fin de celui-ci.</Text>
       <Chips onChange={(value) => setWeeks(Number(value))} options={WEEK_CHOICES.map((item) => ({ value: String(item.weeks), label: item.label }))} value={String(weeks)} />
       {plans.data ? (
@@ -235,7 +260,6 @@ function PlanEditor({ id, planId, startDate, endDate, onSaved }: { id: string; p
   if (others.length === 0) return null;
   return (
     <View style={styles.notesEditor}>
-      <Text style={styles.sectionTitle}>Changer la formule</Text>
       <Text style={styles.meta}>Pour toute la période de cet abonnement. Le prix est recalculé ; les repas à venir suivent la nouvelle formule (viande comprise).</Text>
       <Chips onChange={setChoice} options={others.map((item) => ({ value: item.id, label: item.name }))} value={choice} />
       {plan ? <Text style={styles.meta}>Nouveau prix : {formatMoney(weeklyPrice(plan) * weeks, plan.currency)} ({weeks} semaine{weeks > 1 ? 's' : ''} × {formatMoney(weeklyPrice(plan), plan.currency)}).</Text> : null}
@@ -267,7 +291,6 @@ function DatesEditor({ id, startDate, endDate, onSaved }: { id: string; startDat
   };
   return (
     <View style={styles.notesEditor}>
-      <Text style={styles.sectionTitle}>Modifier les dates</Text>
       <Text style={styles.meta}>Les livraisons hors de la nouvelle période sont supprimées, celles de la nouvelle période sont créées. Le prix ne change pas (utilise « Prix exceptionnel » si besoin).</Text>
       <DateField label="Début" onChange={(value) => { setStart(value); if (end < value) setEnd(value); }} value={start} />
       <DateField label="Fin" min={start} onChange={setEnd} value={end} />
@@ -299,7 +322,6 @@ function DeleteEditor({ id, onDeleted }: { id: string; onDeleted: () => Promise<
   };
   return (
     <View style={styles.notesEditor}>
-      <Text style={styles.sectionTitle}>Supprimer</Text>
       <AppInput label="Raison de la suppression" onChangeText={setReason} value={reason} />
       <AppButton disabled={!reason.trim()} label="Supprimer l’abonnement" loading={saving} onPress={remove} variant="danger" />
     </View>
@@ -346,7 +368,6 @@ function PriceEditor({ id, currentPrice, currency, onSaved }: { id: string; curr
   };
   return (
     <View style={styles.notesEditor}>
-      <Text style={styles.sectionTitle}>Prix exceptionnel</Text>
       <Text style={styles.meta}>Prix actuel : {formatMoney(currentPrice, currency)}. Ce changement ne concerne que cet abonnement.</Text>
       <AppInput keyboardType="decimal-pad" label="Nouveau prix total" onChangeText={setPrice} value={price} />
       <AppInput label="Raison du changement" onChangeText={setReason} value={reason} />
@@ -378,8 +399,13 @@ function NotesEditor({ id, initialNotes, onSaved }: { id: string; initialNotes: 
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
-  return <View style={styles.info}><Text style={styles.meta}>{label}</Text><Text style={styles.infoValue}>{value}</Text></View>;
+function Fact({ label, value, tone }: { label: string; value: string; tone?: 'danger' | 'ok' }) {
+  return (
+    <View style={[styles.fact, tone === 'danger' && styles.factDanger]}>
+      <Text style={[styles.factLabel, tone === 'danger' && styles.factDangerText]}>{label}</Text>
+      <Text style={[styles.factValue, tone === 'danger' && styles.factDangerText]}>{value}</Text>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -389,10 +415,14 @@ const styles = StyleSheet.create({
   subtitle: { color: colors.muted, fontSize: 15 },
   card: { gap: spacing.md },
   sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
-  info: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md },
-  infoValue: { flex: 1, color: colors.text, fontWeight: '700', textAlign: 'right' },
   meta: { color: colors.muted, fontSize: 13, lineHeight: 19 },
   paymentRow: { flexDirection: 'row', alignItems: 'center', borderTopColor: colors.border, borderTopWidth: 1, gap: spacing.sm, paddingTop: spacing.sm },
   paymentAmount: { color: colors.success, fontWeight: '800' },
-  notesEditor: { gap: spacing.sm }
+  notesEditor: { gap: spacing.sm },
+  facts: { flexDirection: 'row', gap: spacing.sm },
+  fact: { flex: 1, gap: 2, backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.md, padding: spacing.sm },
+  factDanger: { backgroundColor: colors.dangerSoft, borderColor: colors.dangerSoft },
+  factLabel: { color: colors.muted, fontSize: 12, fontWeight: '700' },
+  factValue: { color: colors.text, fontSize: 15, fontWeight: '900' },
+  factDangerText: { color: colors.danger }
 });

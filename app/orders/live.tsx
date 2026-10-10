@@ -88,7 +88,7 @@ export default function LiveScreen() {
         </View>
       </Card>
       {hasPermission('deliveries.read') ? (
-        <AppButton label="Préparer et livrer les bols (Aujourd’hui)" onPress={() => router.push('/(tabs)/today')} variant="secondary" />
+        <AppButton label="Préparer et livrer les bols (Aujourd’hui)" onPress={() => router.push({ pathname: '/(tabs)/today', params: { date: data.date } })} variant="secondary" />
       ) : null}
 
       {data.menu_status === 'open' && hasPermission('menus.write') ? (

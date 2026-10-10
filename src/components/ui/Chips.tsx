@@ -34,8 +34,8 @@ export function Chips<T extends string>({ options, value, onChange, label }: Chi
 const styles = StyleSheet.create({
   scroll: { flexGrow: 0, flexShrink: 0 },
   row: { flexDirection: 'row', gap: spacing.sm, paddingVertical: 2 },
-  chip: { backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.round, paddingHorizontal: spacing.md, paddingVertical: 9 },
+  chip: { minHeight: 44, justifyContent: 'center', backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.round, paddingHorizontal: spacing.md, paddingVertical: 9 },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  text: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  text: { color: colors.text, fontSize: 14, fontWeight: '700' },
   textActive: { color: colors.white }
 });

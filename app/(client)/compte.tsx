@@ -49,7 +49,7 @@ export default function ClientAccountScreen() {
   });
 
   if (account.isLoading) return <LoadingView />;
-  if (account.error || !account.data) return <ErrorView message={getErrorMessage(account.error)} onRetry={() => void account.refetch()} />;
+  if (!account.data) return <ErrorView message={getErrorMessage(account.error)} onRetry={() => void account.refetch()} />;
 
   const { customer, subscription, balance, payments } = account.data;
 
@@ -65,7 +65,7 @@ export default function ClientAccountScreen() {
           <Row label="Période" value={`${formatLocalDate(subscription.start_date)} → ${formatLocalDate(subscription.end_date)}`} />
         ) : null}
         {subscription.working_days_left !== undefined && ['actif', 'bientot_expire'].includes(subscription.state) ? (
-          <Row label="Jours ouvrés restants" value={String(subscription.working_days_left)} />
+          <Row label="Jours de repas restants" value={String(subscription.working_days_left)} />
         ) : null}
       </Card>
 

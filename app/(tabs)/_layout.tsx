@@ -35,7 +35,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="customers"
         options={{
-          title: 'Abonnés',
+          title: 'Clients',
           tabBarIcon: ({ color, size }) => <Ionicons color={color} name="people-outline" size={size} />
         }}
       />
@@ -56,7 +56,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="more"
         options={{
-          title: 'Plus',
+          title: 'Gestion',
           tabBarIcon: ({ color, size }) => <Ionicons color={color} name="grid-outline" size={size} />
         }}
       />

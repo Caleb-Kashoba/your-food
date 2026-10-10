@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { getDashboardMetrics } from '@/features/dashboard/dashboard.service';
+import { NextMenuCard } from '@/features/menus/NextMenuCard';
 import { RenewalsCard } from '@/features/subscriptions/RenewalsCard';
 import { useTableRealtime } from '@/hooks/use-table-realtime';
 import { getErrorMessage } from '@/lib/errors';
@@ -46,14 +47,8 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <Text style={styles.sectionEyebrow}>VUE D’ENSEMBLE</Text>
-      <View style={styles.grid}>
-        <MetricCard icon="people-outline" label="Total clients" value={data.totalCustomers} />
-        <MetricCard icon="checkmark-circle-outline" label="Clients actifs" tone="success" value={data.activeCustomers} />
-        <MetricCard icon="repeat-outline" label="Abonnements actifs" value={data.activeSubscriptions} />
-        <MetricCard icon="time-outline" label="Expire bientôt" tone="warning" value={data.expiringSubscriptions} />
-        <MetricCard icon="alert-circle-outline" label="Expirés" tone="danger" value={data.expiredSubscriptions} />
-      </View>
+      <Text style={styles.sectionEyebrow}>À FAIRE AUJOURD’HUI</Text>
+      {hasPermission('menus.write') ? <NextMenuCard /> : null}
 
       <Card style={styles.deliveryCard}>
         <View>
@@ -62,7 +57,7 @@ export default function DashboardScreen() {
           <Text style={styles.largeValue}>{data.deliveredToday} / {data.deliveriesToday}</Text>
           <Text style={styles.deliveryMuted}>{Math.max(data.deliveriesToday - data.deliveredToday, 0)} restantes</Text>
         </View>
-        <Pressable onPress={() => router.push('/(tabs)/today')} style={styles.roundAction}>
+        <Pressable accessibilityLabel="Ouvrir le service du jour" accessibilityRole="button" onPress={() => router.push('/(tabs)/today')} style={styles.roundAction}>
           <Ionicons color={colors.white} name="arrow-forward" size={22} />
         </Pressable>
       </Card>
@@ -77,9 +72,14 @@ export default function DashboardScreen() {
 
       {hasPermission('subscriptions.read') ? <RenewalsCard /> : null}
 
+      <Text style={styles.sectionEyebrow}>VUE D’ENSEMBLE</Text>
       <View style={styles.grid}>
-        <MetricCard icon="add-circle-outline" label="Nouveaux abonnements" value={data.newSubscriptions} />
-        <MetricCard icon="wallet-outline" label="Paiements en attente" tone="warning" value={data.pendingPayments} />
+        <MetricCard icon="people-outline" label="Clients actifs" onPress={() => router.push('/(tabs)/customers')} tone="success" value={data.activeCustomers} detail={`sur ${data.totalCustomers}`} />
+        <MetricCard icon="repeat-outline" label="Abonnements en cours" onPress={() => router.push({ pathname: '/subscriptions', params: { state: 'active' } })} value={data.activeSubscriptions} />
+        <MetricCard icon="time-outline" label="Finissent bientôt" onPress={() => router.push({ pathname: '/subscriptions', params: { state: 'expiring' } })} tone="warning" value={data.expiringSubscriptions} />
+        <MetricCard icon="alert-circle-outline" label="Expirés" onPress={() => router.push({ pathname: '/subscriptions', params: { state: 'expired' } })} tone="danger" value={data.expiredSubscriptions} />
+        <MetricCard icon="add-circle-outline" label="Nouveaux abonnements ce mois" value={data.newSubscriptions} />
+        <MetricCard icon="wallet-outline" label="Paiements en attente" onPress={hasPermission('payments.read') ? () => router.push('/payments') : undefined} tone="warning" value={data.pendingPayments} />
       </View>
 
       <Card style={styles.revenueCard}>
@@ -90,10 +90,12 @@ export default function DashboardScreen() {
         </View>
       </Card>
 
-      <Pressable onPress={() => router.push('/subscriptions/new')} style={styles.primaryAction}>
-        <Ionicons color={colors.white} name="add" size={22} />
-        <Text style={styles.primaryActionText}>Créer un abonnement</Text>
-      </Pressable>
+      {hasPermission('subscriptions.write') ? (
+        <Pressable accessibilityRole="button" onPress={() => router.push('/subscriptions/new')} style={styles.secondaryAction}>
+          <Ionicons color={colors.primary} name="add" size={22} />
+          <Text style={styles.secondaryActionText}>Créer un abonnement</Text>
+        </Pressable>
+      ) : null}
     </ScrollView>
   );
 }
@@ -102,14 +104,18 @@ function MetricCard({
   icon,
   label,
   value,
+  detail,
+  onPress,
   tone = 'default'
 }: {
   icon: React.ComponentProps<typeof Ionicons>['name'];
   label: string;
   value: number;
+  detail?: string;
+  onPress?: (() => void) | undefined;
   tone?: 'default' | 'warning' | 'danger' | 'success';
 }) {
-  return (
+  const card = (
     <Card
       style={[
         styles.metric,
@@ -122,8 +128,15 @@ function MetricCard({
         <View style={styles.metricIcon}><Ionicons color={colors.primary} name={icon} size={20} /></View>
         <Text style={styles.metricValue}>{value}</Text>
       </View>
-      <Text numberOfLines={2} style={styles.metricLabel}>{label}</Text>
+      <Text numberOfLines={2} style={styles.metricLabel}>{label}{detail ? ` ${detail}` : ''}</Text>
+      {onPress ? <Ionicons color={colors.muted} name="chevron-forward" size={16} style={styles.metricChevron} /> : null}
     </Card>
+  );
+  if (!onPress) return <View style={styles.metricSlot}>{card}</View>;
+  return (
+    <Pressable accessibilityLabel={`${label} : ${value}`} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.metricSlot, pressed && styles.pressed]}>
+      {card}
+    </Pressable>
   );
 }
 
@@ -140,7 +153,10 @@ const styles = StyleSheet.create({
   role: { color: colors.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
   sectionEyebrow: { color: colors.primary, fontSize: 11, fontWeight: '900', letterSpacing: 1.3, marginTop: spacing.xs },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
-  metric: { flexBasis: '46%', flexGrow: 1, gap: spacing.sm },
+  metricSlot: { flexBasis: '46%', flexGrow: 1 },
+  metric: { flex: 1, gap: spacing.sm },
+  metricChevron: { position: 'absolute', right: spacing.sm, bottom: spacing.sm },
+  pressed: { opacity: 0.7 },
   warningMetric: { backgroundColor: colors.warningSoft },
   dangerMetric: { backgroundColor: colors.dangerSoft },
   successMetric: { backgroundColor: colors.successSoft },
@@ -159,6 +175,6 @@ const styles = StyleSheet.create({
   revenueIcon: { alignItems: 'center', justifyContent: 'center', width: 50, height: 50, borderRadius: 25, backgroundColor: colors.accentSoft },
   revenueCopy: { flex: 1 },
   revenue: { color: colors.accent, fontSize: 27, fontWeight: '900', marginTop: spacing.xs },
-  primaryAction: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm, backgroundColor: colors.primary, borderRadius: radii.lg, padding: spacing.lg, alignItems: 'center', ...shadows.soft },
-  primaryActionText: { color: colors.surface, fontSize: 16, fontWeight: '900' }
+  secondaryAction: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm, backgroundColor: colors.surfaceStrong, borderColor: colors.primary, borderWidth: 1, borderRadius: radii.lg, minHeight: 52, padding: spacing.md, alignItems: 'center' },
+  secondaryActionText: { color: colors.primary, fontSize: 16, fontWeight: '900' }
 });

@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppButton } from '@/components/ui/AppButton';
 import { Chips } from '@/components/ui/Chips';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -67,7 +69,13 @@ export default function TodayScreen() {
   const { member, hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const today = localDateKey();
-  const [day, setDay] = useState(today);
+  const params = useLocalSearchParams<{ date?: string }>();
+  // Le jour choisi ici prime ; un lien qui apporte un autre jour (Commandes du jour → Aujourd'hui) le remplace
+  const [picked, setPicked] = useState<{ from: string | undefined; day: string } | null>(null);
+  const day = picked && picked.from === params.date ? picked.day : params.date ?? today;
+  const setDay = (value: string) => setPicked({ from: params.date, day: value });
+  // Dernier bol passé à l'étape suivante, pour pouvoir annuler d'un geste
+  const [lastDone, setLastDone] = useState<{ id: string; label: string; previous: DeliveryStatus } | null>(null);
   const [mode, setMode] = useState<Mode>('preparation');
   const [prepFilter, setPrepFilter] = useState<PrepFilter>('a_faire');
   // Contenu des bols : tri et filtres communs à la préparation et à la livraison
@@ -82,16 +90,28 @@ export default function TodayScreen() {
   });
   useTableRealtime('deliveries', member?.organizationId, realtimeKeys);
 
+  const boardKey = ['deliveries', 'board', today];
   const change = useMutation({
     mutationFn: ({ id, status }: { id: string; status: DeliveryStatus }) => updateDeliveryStatus(id, status),
-    onSuccess: async () => {
+    onMutate: async ({ id, status }) => {
+      await queryClient.cancelQueries({ queryKey: boardKey });
+      const previous = queryClient.getQueryData<BoardRow[]>(boardKey);
+      queryClient.setQueryData<BoardRow[]>(boardKey, (rows) => rows?.map((row) => (row.delivery_id === id ? { ...row, delivery_status: status } : row)));
+      return { previous };
+    },
+    onSettled: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['deliveries'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       ]);
     },
-    onError: (error) => Alert.alert('Mise à jour impossible', getErrorMessage(error))
+    onError: (error, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(boardKey, context.previous);
+      setLastDone(null);
+      Alert.alert('Mise à jour impossible', getErrorMessage(error));
+    }
   });
+  const pendingId = change.isPending ? change.variables?.id ?? null : null;
 
   if (board.isLoading) return <LoadingView label="Chargement des livraisons…" />;
   if (board.error || !board.data) return <ErrorView message={getErrorMessage(board.error)} onRetry={() => void board.refetch()} />;
@@ -112,7 +132,16 @@ export default function TodayScreen() {
 
   const act = (row: BoardRow) => {
     const next = nextStatus(row, mode);
-    if (next) change.mutate({ id: row.delivery_id, status: next.status });
+    if (!next) return;
+    const who = `${row.bowl_number != null ? `Bol n°${row.bowl_number} · ` : ''}${row.customer_name}`;
+    const what = next.status === 'ready' ? 'prêt' : next.status === 'delivered' ? 'livré' : 'remis à préparer';
+    setLastDone({ id: row.delivery_id, label: `${who} : ${what}`, previous: row.delivery_status as DeliveryStatus });
+    change.mutate({ id: row.delivery_id, status: next.status });
+  };
+  const undo = () => {
+    if (!lastDone) return;
+    change.mutate({ id: lastDone.id, status: lastDone.previous });
+    setLastDone(null);
   };
 
   return (
@@ -136,10 +165,10 @@ export default function TodayScreen() {
         <Text style={styles.summaryDate}>{capitalizeFirst(formatDayMonth(selected))}</Text>
         {mode === 'preparation' ? (
           <>
-            <Text style={styles.summaryTotal}>{counts.a_preparer + counts.prete + counts.livree} à préparer</Text>
+            <Text style={styles.summaryTotal}>{plural(counts.a_preparer, 'restant')}</Text>
             <Text style={styles.summaryMeta}>
-              {plural(counts.prete + counts.livree, 'prêt')} · {plural(counts.a_preparer, 'restant')}
-              {counts.attente_choix > 0 ? ` · ${plural(counts.attente_choix, 'pas encore choisi')}` : ''}
+              sur {plural(counts.a_preparer + counts.prete + counts.livree, 'bol')} · {plural(counts.prete + counts.livree, 'prêt')}
+              {counts.attente_choix > 0 ? ` · ${counts.attente_choix} sans repas` : ''}
             </Text>
           </>
         ) : (
@@ -151,6 +180,14 @@ export default function TodayScreen() {
         {total === 0 ? <Text style={styles.summaryMeta}>Aucune livraison ce jour.</Text> : null}
       </View>
 
+      {lastDone ? (
+        <View accessibilityLiveRegion="polite" style={styles.done}>
+          <Ionicons color={colors.success} name="checkmark-circle" size={22} />
+          <Text style={styles.doneText}>{lastDone.label}</Text>
+          <AppButton label="Annuler" onPress={undo} variant="ghost" />
+        </View>
+      ) : null}
+
       {mode === 'preparation' ? (
         <PreparationPart
           canAct={canAct}
@@ -161,7 +198,7 @@ export default function TodayScreen() {
           filter={prepFilter}
           onAct={act}
           onFilter={setPrepFilter}
-          pending={change.isPending}
+          pendingId={pendingId}
           rows={rows}
         />
       ) : (
@@ -174,7 +211,7 @@ export default function TodayScreen() {
           filter={deliveryFilter}
           onAct={act}
           onFilter={setDeliveryFilter}
-          pending={change.isPending}
+          pendingId={pendingId}
           rows={rows}
         />
       )}
@@ -182,8 +219,8 @@ export default function TodayScreen() {
   );
 }
 
-function PreparationPart({ rows, filter, onFilter, onAct, canAct, pending, sort, onSort, contentFilter, onContentFilter }: {
-  rows: BoardRow[]; filter: PrepFilter; onFilter: (value: PrepFilter) => void; onAct: (row: BoardRow) => void; canAct: boolean; pending: boolean;
+function PreparationPart({ rows, filter, onFilter, onAct, canAct, pendingId, sort, onSort, contentFilter, onContentFilter }: {
+  rows: BoardRow[]; filter: PrepFilter; onFilter: (value: PrepFilter) => void; onAct: (row: BoardRow) => void; canAct: boolean; pendingId: string | null;
   sort: SortKey; onSort: (value: SortKey) => void; contentFilter: BowlFilter; onContentFilter: (value: BowlFilter) => void;
 }) {
   const totals = totalsToPrepare(rows);
@@ -237,7 +274,7 @@ function PreparationPart({ rows, filter, onFilter, onAct, canAct, pending, sort,
           </View>
           ) : null}
           {group.rows.map((row) => (
-            <MealCard canAct={canAct} key={row.delivery_id} mode="preparation" onAct={() => onAct(row)} pending={pending} row={row} />
+            <MealCard canAct={canAct} key={row.delivery_id} mode="preparation" onAct={() => onAct(row)} pending={pendingId === row.delivery_id} row={row} />
           ))}
         </View>
       ))}
@@ -245,8 +282,8 @@ function PreparationPart({ rows, filter, onFilter, onAct, canAct, pending, sort,
   );
 }
 
-function DeliveryPart({ rows, filter, onFilter, onAct, canAct, pending, sort, onSort, contentFilter, onContentFilter }: {
-  rows: BoardRow[]; filter: DeliveryFilter; onFilter: (value: DeliveryFilter) => void; onAct: (row: BoardRow) => void; canAct: boolean; pending: boolean;
+function DeliveryPart({ rows, filter, onFilter, onAct, canAct, pendingId, sort, onSort, contentFilter, onContentFilter }: {
+  rows: BoardRow[]; filter: DeliveryFilter; onFilter: (value: DeliveryFilter) => void; onAct: (row: BoardRow) => void; canAct: boolean; pendingId: string | null;
   sort: SortKey; onSort: (value: SortKey) => void; contentFilter: BowlFilter; onContentFilter: (value: BowlFilter) => void;
 }) {
   const counts = countByStage(rows);
@@ -274,7 +311,7 @@ function DeliveryPart({ rows, filter, onFilter, onAct, canAct, pending, sort, on
         </Text>
       ) : null}
       {visible.map((row) => (
-        <MealCard canAct={canAct} key={row.delivery_id} mode="livraison" onAct={() => onAct(row)} pending={pending} row={row} />
+        <MealCard canAct={canAct} key={row.delivery_id} mode="livraison" onAct={() => onAct(row)} pending={pendingId === row.delivery_id} row={row} />
       ))}
     </>
   );
@@ -329,7 +366,7 @@ function MealCard({ row, mode, canAct, pending, onAct }: { row: BoardRow; mode: 
           accessibilityRole="button"
           disabled={pending}
           onPress={onAct}
-          style={[styles.action, undo ? styles.actionQuiet : mode === 'livraison' ? styles.actionDeliver : styles.actionPrepare]}
+          style={[styles.action, pending && styles.actionPending, undo ? styles.actionQuiet : mode === 'livraison' ? styles.actionDeliver : styles.actionPrepare]}
         >
           <Text style={[styles.actionText, undo && styles.actionTextQuiet]}>{next.label}</Text>
         </Pressable>
@@ -377,9 +414,12 @@ const styles = StyleSheet.create({
   actionPrepare: { backgroundColor: colors.primary },
   actionDeliver: { backgroundColor: colors.accent },
   actionQuiet: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 },
+  actionPending: { opacity: 0.55 },
   actionText: { color: colors.white, fontWeight: '900' },
   actionTextQuiet: { color: colors.muted },
   hint: { color: colors.muted, fontSize: 13, fontStyle: 'italic' },
+  done: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.successSoft, borderRadius: radii.md, paddingLeft: spacing.md },
+  doneText: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '700' },
   group: { gap: spacing.sm },
   groupHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: spacing.sm, borderBottomColor: colors.border, borderBottomWidth: 1, paddingBottom: spacing.xs, marginTop: spacing.sm },
   groupTitle: { color: colors.primaryDark, fontSize: 18, fontWeight: '900' },

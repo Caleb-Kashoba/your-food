@@ -8,6 +8,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { QrCode } from '@/components/QrCode';
 import { AppButton } from '@/components/ui/AppButton';
 import { Card } from '@/components/ui/Card';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import {
   accessLinkFor,
   buildAccessMessage,
@@ -26,6 +27,7 @@ export function AccessCard({ customer }: { customer: Customer }) {
   const [showQr, setShowQr] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmNew, setConfirmNew] = useState(false);
 
   const open = useQuery({ queryKey: ['access', customer.id], queryFn: () => getOpenAccessCode(customer.id) });
 
@@ -40,9 +42,18 @@ export function AccessCard({ customer }: { customer: Customer }) {
 
   const code = open.data?.code;
   const isReset = open.data?.type === 'reset';
+  const nextType: AccessCodeType = customer.hasAccount ? 'reset' : 'activation';
   const link = code ? accessLinkFor(customer.firstName, customer.lastName, code) : null;
   const message = code && link ? buildAccessMessage({ firstName: customer.firstName, link, code, reset: isReset }) : '';
   const phone = customer.whatsapp || customer.phone;
+
+  const generate = () => {
+    if (code) {
+      setConfirmNew(true);
+      return;
+    }
+    issue.mutate(nextType);
+  };
 
   const copyLink = async () => {
     if (!link) return;
@@ -79,6 +90,7 @@ export function AccessCard({ customer }: { customer: Customer }) {
       {code && link ? (
         <View style={styles.actions}>
           <AppButton
+            disabled={!phone}
             label="Envoyer par WhatsApp"
             onPress={() =>
               router.push({
@@ -93,15 +105,29 @@ export function AccessCard({ customer }: { customer: Customer }) {
             <Text style={styles.qrToggleText}>{showQr ? 'Masquer le QR code' : 'Afficher le QR code (remise en main propre)'}</Text>
           </Pressable>
           {showQr ? <View style={styles.qr}><QrCode value={link} /></View> : null}
-          {!phone ? <Text style={styles.help}>Pas de numéro : copie le lien ou montre le QR code au client.</Text> : null}
+          {!phone ? <Text style={styles.help}>Pas de numéro : montre le QR code ou copie le lien.</Text> : null}
         </View>
       ) : null}
 
       <AppButton
         label={customer.hasAccount ? 'Réinitialiser le mot de passe' : code ? 'Régénérer le code' : 'Générer le code d’accès'}
         loading={issue.isPending}
-        onPress={() => issue.mutate(customer.hasAccount ? 'reset' : 'activation')}
+        onPress={generate}
         variant={code ? 'ghost' : 'secondary'}
+      />
+
+      <ConfirmModal
+        cancelLabel="Annuler"
+        confirmLabel="Créer le code"
+        loading={issue.isPending}
+        message="L’ancien code ne fonctionnera plus : envoie le nouveau au client."
+        onCancel={() => setConfirmNew(false)}
+        onConfirm={() => {
+          setConfirmNew(false);
+          issue.mutate(nextType);
+        }}
+        title="Créer un nouveau code ?"
+        visible={confirmNew}
       />
     </Card>
   );

@@ -38,7 +38,7 @@ const styles = StyleSheet.create({
   group: { gap: spacing.sm },
   title: { color: colors.primary, fontSize: 11, fontWeight: '900', letterSpacing: 1.2, textTransform: 'uppercase' },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  chip: { backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.round, paddingHorizontal: spacing.md, paddingVertical: 9 },
+  chip: { minHeight: 44, justifyContent: 'center', backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.round, paddingHorizontal: spacing.md, paddingVertical: 9 },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   text: { color: colors.text, fontSize: 13, fontWeight: '700' },
   textActive: { color: colors.white }

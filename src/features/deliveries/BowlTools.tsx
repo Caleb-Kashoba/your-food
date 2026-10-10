@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Chips } from '@/components/ui/Chips';
+import { Section } from '@/components/ui/Section';
 import {
   NO_MEAT,
   SORT_OPTIONS,
@@ -13,7 +14,7 @@ import {
   type ContentOption,
   type SortKey
 } from '@/features/deliveries/board';
-import { colors, radii, spacing } from '@/theme/colors';
+import { colors, spacing } from '@/theme/colors';
 
 const ALL = '';
 
@@ -53,8 +54,11 @@ export function BowlTools({ rows, filter, onFilter, sort, onSort }: BowlToolsPro
   const active = [chosenCombo, filter.plat, filter.accompagnement, filter.viande === NO_MEAT ? 'sans viande' : filter.viande].filter(Boolean).join(' + ');
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>Contenu des bols</Text>
+    <Section
+      badge={`${shown} bol${shown > 1 ? 's' : ''}`}
+      summary={`Tri : ${SORT_OPTIONS.find((option) => option.value === sort)?.label ?? ''}${active ? ` · Filtre : ${active}` : ''}`}
+      title="Trier et filtrer les bols"
+    >
       <Text style={styles.label}>Trier par</Text>
       <Chips onChange={onSort} options={SORT_OPTIONS} value={sort} />
       {combos.length > 0 ? (
@@ -81,15 +85,13 @@ export function BowlTools({ rows, filter, onFilter, sort, onSort }: BowlToolsPro
           <Text accessibilityRole="button" onPress={() => onFilter({})} style={styles.reset}>Tout afficher</Text>
         ) : null}
       </View>
-    </View>
+    </Section>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.lg, gap: spacing.xs, padding: spacing.md },
-  title: { color: colors.primaryDark, fontSize: 16, fontWeight: '900', marginBottom: spacing.xs },
   label: { color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 0.4, marginTop: spacing.xs },
   summary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginTop: spacing.sm },
   summaryText: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '800' },
-  reset: { color: colors.primary, fontSize: 14, fontWeight: '800', paddingVertical: spacing.xs }
+  reset: { color: colors.primary, fontSize: 14, fontWeight: '800', paddingVertical: spacing.sm, minHeight: 44, textAlignVertical: 'center' }
 });
