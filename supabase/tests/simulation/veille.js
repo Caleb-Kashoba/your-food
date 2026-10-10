@@ -225,6 +225,18 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   const ow = [await ov('2026-10-12', weekly), await ov('2026-10-13', weekly), await ov('2026-10-14', weekly), await ov('2026-10-16', weekly)];
   C('V17', 'vue administratrice, abonnement d\'une semaine : active, active, expiring_soon (2 jours avant la fin), expires_today', 'active, active, expiring_soon, expires_today', ow.join(', '), ow.join() === 'active,active,expiring_soon,expires_today', '2026-10-16');
 
+  // ── Un client qui enchaîne (abonnement fini vendredi, nouvel abonnement lundi) choisit son repas de lundi dès dimanche
+  const chain = clients.find((c) => c.group === 'B' && c.uid && c.subs[0]);
+  await sim.clock('2026-10-09', '18:00:00');
+  const chainNew = await sim.rpc(admin, 'create_subscription_weeks', [chain.id, chain.plan === 'F1' ? plans.F2 : plans.F1, '2026-10-12', 1, null, null, null]);
+  await sim.clock('2026-10-11', '10:00:00');
+  await sim.q('select public.refresh_open_default_orders()');
+  const cv = (await sim.rpc(chain.uid, 'my_today_menu', [])).value;
+  const chainOrder = cv && cv.menu ? await sim.rpc(chain.uid, 'submit_my_order', [cv.menu.id, pick(cv, 'plat'), pick(cv, 'accompagnement'), cv.meat_allowed_today ? pick(cv, 'viande') : null]) : { ok: false, msg: 'pas de menu' };
+  C('V47', 'client qui enchaîne (fin vendredi, nouvel abonnement lundi avec une autre formule) : pas de « premier jour », il choisit son repas de lundi dès dimanche', 'premier jour faux, commande acceptée',
+    `${chainNew.ok ? '' : chainNew.msg + ' — '}premier jour ${cv && cv.first_day_default}, ${chainOrder.ok ? 'commande acceptée' : chainOrder.msg}`,
+    chainNew.ok && cv.first_day_default === false && chainOrder.ok, '2026-10-11');
+
   // ── Un abonnement suspendu : sa livraison annulée ne reçoit pas de repas par défaut
   await sim.clock('2026-10-11', '21:10:00');
   const suspended = a5[6];
@@ -265,10 +277,19 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   C('V34', 'un client ne peut pas lire la liste des renouvellements', 'refusé', denied.ok ? 'accepté' : denied.msg, rejected(denied, /Permission denied/), '2026-10-14');
 
   // ── Un seul abonnement en cours par client : on le rallonge, on le modifie (avec motif) ou on le supprime
-  const second = await sim.rpc(admin, 'create_subscription_weeks', [weekly.id, plans.F2, '2026-10-26', 1, null, null, null]);
-  C('V35', 'créer un deuxième abonnement pour un client qui en a un en cours : refusé', 'refusé « abonnement en cours »', second.ok ? 'accepté' : second.msg, rejected(second, /abonnement en cours/), '2026-10-14');
+  // Renouveler avec une autre formule pendant que l'abonnement court : la suite commence le lundi qui suit la fin
   const otherPlan = await sim.rpc(admin, 'renew_subscription_weeks', [weekly.id, 1, plans.F1, null, null]);
-  C('V36', 'rallonger en changeant de formule : refusé (on annule l\'ancien puis on en crée un nouveau)', 'refusé « changer de formule »', otherPlan.ok ? 'accepté' : otherPlan.msg, rejected(otherPlan, /changer de formule/), '2026-10-14');
+  const follow = otherPlan.ok ? await sim.one('select start_date::text as s, end_date::text as e, applied_plan_name as p, renewed_from_id as r from public.subscriptions where id = $1', [otherPlan.value]) : null;
+  C('V36', 'renouveler avec une autre formule pendant que l\'abonnement court : un nouvel abonnement (Formule 1) commence le lundi qui suit la fin', 'Formule 1, 2026-10-26 → 2026-10-30, lié au précédent',
+    follow ? `${follow.p}, ${follow.s} → ${follow.e}, ${follow.r === wsub.value ? 'lié' : 'non lié'}` : otherPlan.msg,
+    Boolean(follow) && follow.p === 'Formule 1' && follow.s === '2026-10-26' && follow.e === '2026-10-30' && follow.r === wsub.value, '2026-10-14');
+  const second = await sim.rpc(admin, 'create_subscription_weeks', [weekly.id, plans.F2, '2026-11-02', 1, null, null, null]);
+  const overlap = await sim.rpc(admin, 'create_subscription_weeks', [weekly.id, plans.F2, '2026-10-19', 1, null, null, null]);
+  C('V35', 'jamais deux abonnements en même temps, et un seul abonnement à venir : un 2e abonnement à venir et un abonnement qui chevauche sont refusés', 'refusés « à venir » et « chevauche »',
+    `${second.ok ? 'accepté' : second.msg} / ${overlap.ok ? 'accepté' : overlap.msg}`, rejected(second, /à venir/) && rejected(overlap, /chevauche/), '2026-10-14');
+  // Pour la suite des cas, on retire l'abonnement à venir créé ci-dessus (rien de payé, rien de livré)
+  const dropFollow = otherPlan.ok ? await sim.rpc(admin, 'delete_subscription', [otherPlan.value, 'Test : retour à un seul abonnement']) : { ok: false, msg: 'pas de suite' };
+  if (!dropFollow.ok) throw new Error('suppression de la suite impossible : ' + dropFollow.msg);
   const logs = await sim.q("select action, reason, details from public.subscription_changes where subscription_id = $1 order by created_at", [wsub.value]);
   C('V37', 'le rallongement est journalisé (semaines, fin avant / après, prix avant / après)', '1 ligne « extended », 1 semaine, fin 2026-10-16 → 2026-10-23', logs.map((l) => `${l.action} ${l.details.weeks} sem. ${l.details.end_before} → ${l.details.end_after}`).join(' | '), logs.length === 1 && logs[0].action === 'extended' && logs[0].details.weeks === 1 && logs[0].details.end_after === '2026-10-23', '2026-10-14');
   const extNoPerm = await sim.rpc(a5[0].uid, 'extend_subscription_weeks', [wsub.value, 1, null]);
@@ -306,6 +327,21 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   const ext2 = reRenew.ok ? (await sim.one('select end_date::text as e from public.subscriptions where id = $1', [created26.value])).e : reRenew.msg;
   C('V43', 'abonnement qui commence lundi 26 : « renouveler » le rallonge de 2 semaines (fin 2026-11-13), pas de deuxième abonnement', 'fin 2026-11-13', String(ext2), ext2 === '2026-11-13', '2026-10-14');
 
+  // ── Changer la formule d'un abonnement en cours (motif obligatoire, prix recalculé, viande des repas à venir ajustée)
+  const switcher = a5.find((c) => c.plan === 'F2' && c.id !== suspended.id);
+  const sw = switcher.subs[0].id;
+  const swBefore = await sim.one('select applied_price::numeric as p from public.subscriptions where id = $1', [sw]);
+  const noWhy2 = await sim.rpc(admin, 'change_subscription_plan', [sw, plans.F1, '']);
+  const toF1 = await sim.rpc(admin, 'change_subscription_plan', [sw, plans.F1, 'Le client passe à la Formule 1']);
+  const swAfter = await sim.one('select applied_plan_name as n, applied_price::numeric as p from public.subscriptions where id = $1', [sw]);
+  const meatLeft = (await sim.one(`select count(*)::int n from public.meal_orders o join public.daily_menus dm on dm.id = o.daily_menu_id
+     where o.subscription_id = $1 and dm.status = 'open' and o.status = 'confirmed' and o.viande_option_id is not null and extract(isodow from dm.menu_date) not in (1, 5)`, [sw])).n;
+  const planLog = await sim.one("select reason from public.subscription_changes where subscription_id = $1 and action = 'plan_changed'", [sw]);
+  C('V44', 'changer de formule (Formule 2 → Formule 1) : motif obligatoire, prix recalculé, plus de viande les jours sans viande sur les menus ouverts, journalisé',
+    'sans motif refusé ; Formule 1, prix réduit, 0 repas avec viande un jour sans viande, journal',
+    `${noWhy2.ok ? 'sans motif accepté' : 'sans motif refusé'} ; ${toF1.ok ? swAfter.n + ', ' + Number(swBefore.p) + ' → ' + Number(swAfter.p) + ', ' + meatLeft + ' avec viande, journal ' + (planLog ? 'présent' : 'absent') : toF1.msg}`,
+    rejected(noWhy2, /raison/) && toF1.ok && swAfter.n === 'Formule 1' && Number(swAfter.p) < Number(swBefore.p) && meatLeft === 0 && Boolean(planLog), '2026-10-14');
+
   // ── Seuil de votes : un ou deux clients ne décident pas pour tous (5 votes par défaut, réglable)
   await sim.clock('2026-10-12', '10:00:00');
   const pubT = await sim.rpc(admin, 'publish_menu', ['2026-10-15', ids(names), '13:00']);
@@ -337,6 +373,33 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   const clientSet = await sim.rpc(a5[0].uid, 'set_default_min_votes', [1]);
   C('V30', 'seuil hors limites ou demandé par un client : refusé', 'refusés', `${badValue.ok ? 'accepté' : 'refusé'} / ${clientSet.ok ? 'accepté' : 'refusé'}`, rejected(badValue, /entre 0 et 100/) && rejected(clientSet, /Permission denied/), '2026-10-14');
   await sim.rpc(admin, 'set_default_min_votes', [5]);
+
+  // ── Numéros de bols : attribués au verrouillage, triés par plat, stables ensuite
+  await sim.clock('2026-10-15', '00:00:30');
+  await sim.q('select public.lock_due_menus()');
+  const bowls = await sim.q(`select dl.bowl_number as n, pc.name as plat, dl.customer_name as c
+     from public.deliveries dl
+     join public.daily_menus dm on dm.organization_id = dl.organization_id and dm.menu_date = dl.delivery_date
+     join public.meal_orders o on o.daily_menu_id = dm.id and o.customer_id = dl.customer_id and o.status = 'confirmed'
+     left join public.menu_options po on po.id = o.plat_option_id left join public.catalog_items pc on pc.id = po.catalog_item_id
+     where dl.delivery_date = '2026-10-15' and dl.status <> 'cancelled' order by dl.bowl_number`);
+  const numbered = bowls.filter((b) => b.n !== null);
+  const consecutive = numbered.every((b, k) => b.n === k + 1);
+  const sortedByPlat = numbered.every((b, k) => k === 0 || (numbered[k - 1].plat || '').localeCompare(b.plat || '', 'fr') <= 0);
+  C('V45', 'au verrouillage, chaque bol du jour reçoit un numéro (1, 2, 3…), dans l\'ordre des plats', 'tous numérotés, 1..N sans trou, triés par plat',
+    `${numbered.length}/${bowls.length} numérotés, ${consecutive ? 'suite continue' : 'trous'}, ${sortedByPlat ? 'triés par plat' : 'non triés'}`,
+    bowls.length > 0 && numbered.length === bowls.length && consecutive && sortedByPlat, '2026-10-15');
+  // Une saisie de l'équipe après verrouillage ne renumérote pas ; les numéros apparaissent dans le tableau et le suivi
+  await sim.clock('2026-10-15', '08:00:00');
+  const firstBowl = await sim.one("select customer_id as c from public.deliveries where delivery_date = '2026-10-15' and bowl_number = 1");
+  const lastOpt = async (cat) => (await sim.q('select o.id from public.menu_options o join public.catalog_items c on c.id = o.catalog_item_id join public.daily_menus dm on dm.id = o.daily_menu_id where dm.menu_date = $1 and c.category = $2 order by c.name desc', ['2026-10-15', cat]))[0].id;
+  const ctx15 = (await sim.rpc(admin, 'staff_order_context', [firstBowl.c, '2026-10-15'])).value;
+  const edit15 = await sim.rpc(admin, 'staff_set_order', [firstBowl.c, '2026-10-15', await lastOpt('plat'), await lastOpt('accompagnement'), ctx15.meat_allowed ? await lastOpt('viande') : null]);
+  const live15 = (await sim.rpc(admin, 'orders_live', ['2026-10-15'])).value;
+  const stillOne = live15.rows.find((r) => r.customer_id === firstBowl.c).bowl_number;
+  const board15 = (await sim.rpc(admin, 'deliveries_board', ['2026-10-15', '2026-10-15'])).value;
+  C('V46', 'après une saisie de l\'équipe, le bol garde son numéro ; le tableau et le suivi affichent les numéros', 'bol n°1 inchangé, numéros dans le tableau',
+    `${edit15.ok ? 'saisie ok' : edit15.msg}, n°${stillOne}, tableau : ${board15.filter((r) => r.bowl_number).length} numéros`, edit15.ok && stillOne === 1 && board15.some((r) => r.bowl_number === 1), '2026-10-15');
 
   // ── La limite de commande se réglera plus tard : réglage « order_limit_time » (vide = aucune)
   const org = W.org;

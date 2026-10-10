@@ -68,7 +68,10 @@ const LOCK = 20 * 3600;
     const st = modelState(c, S);
     if (!['actif', 'bientot_expire'].includes(st)) return false;
     const s = currentSub(c, S);
-    if (!s || s.start > d || (s.blockedUntil && s.blockedUntil >= S)) return false;
+    if (!s || (s.blockedUntil && s.blockedUntil >= S)) return false;
+    // Premier jour d'un nouveau client : pas de commande (repas par défaut). Un client qui enchaîne (abonnement fini juste avant) commande.
+    const chained = c.subs.some((x) => x !== s && x.start < s.start && x.end >= addDays(s.start, -4));
+    if (s.start > d && !chained) return false;
     const menu = M.menus[S];
     return Boolean(menu && !menu.locked && isWeekday(S) && toSec(time) < 86400); // plus de limite à 20 h : toute la journée de la veille
   }
@@ -701,12 +704,16 @@ const LOCK = 20 * 3600;
       if (res.ok) c.subs.push({ id: res.value, start: '2026-10-19', end: row.e, status: 'active', plan: c.plan, blockedUntil: null });
     }
     // renouveler avec changement de formule
-    // Abonnement en cours : changer de formule en le rallongeant est refusé (on annule l'ancien puis on en crée un nouveau)
+    // Abonnement en cours : renouveler avec une autre formule prépare l'abonnement suivant (lundi qui suit la fin), jamais en même temps
     const running = clients.find((x) => x.group === 'B' && x.subs.length === 1 && x.subs[0].end === '2026-11-06');
     if (running) {
       const otherPlan = running.plan === 'F1' ? 'F2' : 'F1';
-      const refused = await sim.rpc(admin, 'renew_subscription_weeks', [running.id, 2, plans[otherPlan], null, null]);
-      C('S6b', 'abonnements', 'rallonger en changeant de formule un abonnement en cours', 'refusé', refused.ok ? 'accepté' : refused.msg, expectRejected(refused, /changer de formule/));
+      const next = await sim.rpc(admin, 'renew_subscription_weeks', [running.id, 2, plans[otherPlan], null, null]);
+      const row = next.ok && (await sim.one('select start_date::text as s, end_date::text as e from public.subscriptions where id = $1', [next.value]));
+      C('S6b', 'abonnements', 'renouveler avec une autre formule un abonnement en cours : la suite commence le lundi qui suit la fin', 'début 2026-11-09, fin 2026-11-20', row ? `${row.s} → ${row.e}` : next.msg, row && row.s === '2026-11-09' && row.e === '2026-11-20');
+      if (next.ok) running.subs.push({ id: next.value, start: '2026-11-09', end: '2026-11-20', status: 'active', plan: otherPlan, blockedUntil: null });
+      const again = await sim.rpc(admin, 'create_subscription_weeks', [running.id, plans[otherPlan], '2026-11-23', 1, null, null, null]);
+      C('S6c', 'abonnements', 'un deuxième abonnement à venir pour le même client', 'refusé', again.ok ? 'accepté' : again.msg, expectRejected(again, /à venir/));
     }
     // Abonnement terminé : renouveler avec un changement de formule crée un nouvel abonnement
     const c = clients.find((x) => x.group === 'B' && x.subs.length === 1 && x.subs[0].end === '2026-10-09');
