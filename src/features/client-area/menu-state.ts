@@ -18,7 +18,7 @@ export type ClientMenuState =
   | 'normal';
 
 /**
- * État affiché. `resuming` : le client a annulé puis appuyé sur « Finalement, je mange » (possible avant 20h) :
+ * État affiché. `resuming` : le client a annulé puis appuyé sur « Finalement, je mange » (possible tant que le menu n'est pas verrouillé) :
  * on rouvre alors le choix sans repasser par le serveur.
  */
 export function deriveMenuState(menu: TodayMenu, resuming = false): ClientMenuState {
@@ -72,13 +72,13 @@ export function kinshasaClock(instantMs: number): { date: string; seconds: numbe
 }
 
 /**
- * Secondes restantes avant l'heure limite (menu « normal ») ou avant le verrouillage de 20h (« en retard » ou annulé).
+ * Secondes restantes avant l'heure limite (menu « normal ») ou avant l'heure limite réglée (« en retard » ou annulé). Sans limite réglée (`lock_time` vide), il n'y a pas de compte à rebours : le menu se verrouille à minuit.
  * `serverOffsetMs` = heure du serveur − heure de l'appareil, pour ne pas dépendre de l'horloge du téléphone.
  */
 export function secondsLeft(menu: TodayMenu, state: ClientMenuState, nowMs: number, serverOffsetMs: number): number {
   if (!menu.menu || !menu.menu.lock_time) return 0;
   const clock = kinshasaClock(nowMs + serverOffsetMs);
-  // Le choix et le verrouillage de 20h ont lieu la veille du repas (jour de commande)
+  // L'heure limite, quand elle est réglée, tombe la veille du repas (jour de commande)
   if (clock.date !== (menu.menu.lock_date ?? menu.date)) return 0;
   const target = timeToSeconds(menu.menu.lock_time);
   return Math.max(target - clock.seconds, 0);
