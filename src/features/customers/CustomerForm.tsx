@@ -10,6 +10,7 @@ import {
   type CustomerFormValues,
   type CustomerPayload
 } from '@/features/customers/customer.schema';
+import { CUSTOMER_STATUS_LABEL } from '@/features/customers/customer-status';
 import { listDeliveryZones } from '@/features/customers/customers.service';
 import { colors, radii, spacing } from '@/theme/colors';
 
@@ -196,21 +197,10 @@ export function CustomerForm({ initialValues, onSubmit, submitLabel }: CustomerF
         render={({ field }) => (
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Statut du client</Text>
-            <View style={styles.chips}>
-              {([
-                { value: 'active', label: 'Actif' },
-                { value: 'inactive', label: 'Inactif' },
-                { value: 'former_customer', label: 'Ancien client' }
-              ] as const).map((status) => (
-                <Pressable
-                  key={status.value}
-                  onPress={() => field.onChange(status.value)}
-                  style={[styles.chip, field.value === status.value && styles.chipSelected]}
-                >
-                  <Text style={[styles.chipText, field.value === status.value && styles.chipTextSelected]}>{status.label}</Text>
-                </Pressable>
-              ))}
-            </View>
+            <Text style={styles.statusValue}>{CUSTOMER_STATUS_LABEL[field.value]}</Text>
+            <Text style={styles.statusHelp}>
+              Calculé d’après les abonnements : actif tant qu’un abonnement est en cours ou à venir, inactif 2 jours ouvrés après la fin du dernier. « Ancien client » se confirme depuis l’accueil, un mois plus tard.
+            </Text>
           </View>
         )}
       />
@@ -250,6 +240,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm
   },
+  statusValue: { color: colors.primaryDark, fontSize: 16, fontWeight: '800' },
+  statusHelp: { color: colors.muted, fontSize: 13, lineHeight: 18 },
   chipSelected: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   chipText: { color: colors.muted, fontWeight: '600' },
   chipTextSelected: { color: colors.primaryDark },

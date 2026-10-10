@@ -5,8 +5,10 @@ import { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppInput } from '@/components/ui/AppInput';
+import { Chips } from '@/components/ui/Chips';
 import { EmptyView, ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { CUSTOMER_STATUS_LABEL, filterByStatus, STATUS_FILTERS, type StatusFilter } from '@/features/customers/customer-status';
 import { listCustomers } from '@/features/customers/customers.service';
 import { getErrorMessage } from '@/lib/errors';
 import { colors, radii, shadows, spacing } from '@/theme/colors';
@@ -15,6 +17,7 @@ export default function CustomersScreen() {
   const router = useRouter();
   const { hasPermission } = useAuth();
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const customers = useQuery({ queryKey: ['customers', search], queryFn: () => listCustomers(search) });
 
   return (
@@ -34,6 +37,9 @@ export default function CustomersScreen() {
           </>
         ) : null}
       </View>
+      <View style={styles.filters}>
+        <Chips label="Filtrer par statut" onChange={setStatusFilter} options={STATUS_FILTERS} value={statusFilter} />
+      </View>
       {customers.isLoading ? (
         <LoadingView />
       ) : customers.error ? (
@@ -41,9 +47,9 @@ export default function CustomersScreen() {
       ) : (
         <FlatList
           contentContainerStyle={styles.list}
-          data={customers.data}
+          data={filterByStatus(customers.data ?? [], statusFilter)}
           keyExtractor={(item) => item.id}
-          ListEmptyComponent={<EmptyView message="Ajoutez le premier client de Your Food." title="Aucun client" />}
+          ListEmptyComponent={<EmptyView message={statusFilter === 'all' ? 'Ajoutez le premier client de Your Food.' : 'Aucun client avec ce statut.'} title="Aucun client" />}
           onRefresh={() => void customers.refetch()}
           refreshing={customers.isRefetching}
           renderItem={({ item }) => (
@@ -56,6 +62,7 @@ export default function CustomersScreen() {
               </View>
               <View style={styles.customerBody}>
                 <Text style={styles.name}>{item.firstName} {item.lastName}</Text>
+                {item.status !== 'active' ? <Text style={styles.statusTag}>{CUSTOMER_STATUS_LABEL[item.status]}</Text> : null}
                 <Text style={styles.detail}>{item.phone ?? 'Pas de numéro'}</Text>
                 <Text style={styles.detail}>{[item.residence, item.building, item.room].filter(Boolean).join(' · ') || 'Adresse non renseignée'}</Text>
               </View>
@@ -73,6 +80,8 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.background },
   toolbar: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, padding: spacing.md, paddingBottom: spacing.sm },
   search: { flex: 1 },
+  filters: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
+  statusTag: { color: colors.warning, fontSize: 12, fontWeight: '800' },
   addButton: {
     alignItems: 'center',
     justifyContent: 'center',

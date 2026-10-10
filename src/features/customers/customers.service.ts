@@ -25,6 +25,16 @@ interface CustomerRecord {
   delivery_zones: { name: string } | { name: string }[] | null;
 }
 
+export interface FormerProposal {
+  customerId: string;
+  customerName: string;
+  /** Fin du dernier abonnement */
+  lastEnd: string;
+  inactiveDays: number;
+  /** Nombre de « Pas encore » déjà répondus */
+  refusals: number;
+}
+
 export interface DeliveryZone {
   id: string;
   name: string;
@@ -107,7 +117,6 @@ export async function createCustomer(organizationId: string, memberId: string, p
       allergies: payload.allergies,
       foods_to_avoid: payload.foodsToAvoid,
       notes: payload.notes,
-      status: payload.status,
       created_by: memberId,
       updated_by: memberId
     })
@@ -135,10 +144,28 @@ export async function updateCustomer(id: string, memberId: string, payload: Cust
       allergies: payload.allergies,
       foods_to_avoid: payload.foodsToAvoid,
       notes: payload.notes,
-      status: payload.status,
       updated_by: memberId
     })
     .eq('id', id);
+  if (error) throw error;
+}
+
+/** Clients inactifs depuis un mois à confirmer comme « anciens clients » (hors reports en cours) */
+export async function listFormerProposals(): Promise<FormerProposal[]> {
+  const { data, error } = await requireSupabase().rpc('former_customer_proposals');
+  if (error) throw error;
+  return (data as { customer_id: string; customer_name: string; last_end: string; inactive_days: number; refusals: number }[]).map((row) => ({
+    customerId: row.customer_id,
+    customerName: row.customer_name,
+    lastEnd: row.last_end,
+    inactiveDays: row.inactive_days,
+    refusals: row.refusals
+  }));
+}
+
+/** Approuver = ancien client ; refuser = la question revient dans 2 semaines */
+export async function decideFormerCustomer(customerId: string, approve: boolean): Promise<void> {
+  const { error } = await requireSupabase().rpc('decide_former_customer', { p_customer: customerId, p_approve: approve });
   if (error) throw error;
 }
 

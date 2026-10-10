@@ -7,6 +7,7 @@ import { BrandLogo } from '@/components/BrandLogo';
 import { Card } from '@/components/ui/Card';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { FormerCustomersCard } from '@/features/customers/FormerCustomersCard';
 import { getDashboardMetrics } from '@/features/dashboard/dashboard.service';
 import { NextMenuCard } from '@/features/menus/NextMenuCard';
 import { RenewalsCard } from '@/features/subscriptions/RenewalsCard';
@@ -71,6 +72,7 @@ export default function DashboardScreen() {
       ) : null}
 
       {hasPermission('subscriptions.read') ? <RenewalsCard /> : null}
+      {hasPermission('customers.write') ? <FormerCustomersCard /> : null}
 
       <Text style={styles.sectionEyebrow}>VUE D’ENSEMBLE</Text>
       <View style={styles.grid}>

@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { AccessCard } from '@/features/client-access/AccessCard';
+import { CUSTOMER_STATUS_LABEL } from '@/features/customers/customer-status';
 import { getCustomer } from '@/features/customers/customers.service';
 import { listCustomerDeliveries } from '@/features/deliveries/deliveries.service';
 import { listPayments } from '@/features/payments/payments.service';
@@ -55,7 +56,7 @@ export default function CustomerDetailScreen() {
       </View>
       <Card style={styles.card}>
         <Text style={styles.sectionTitle}>Synthèse</Text>
-        <Info label="Statut" value={item.status} />
+        <Info label="Statut" value={CUSTOMER_STATUS_LABEL[item.status]} />
         <Info label="Inscription" value={formatLocalDate(item.createdAt)} />
         <Info label="Total payé" value={formatMoney(confirmedPaid)} />
         <Info label="Dernière activité" value={lastActivity ? formatLocalDate(lastActivity) : null} />

@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 
+import { useFormerProposals } from '@/features/customers/FormerCustomersCard';
 import { colors } from '@/theme/colors';
 
 export default function TabsLayout() {
+  const toConfirm = useFormerProposals().data?.length ?? 0;
   return (
     <Tabs
       screenOptions={{
@@ -36,6 +38,7 @@ export default function TabsLayout() {
         name="customers"
         options={{
           title: 'Clients',
+          ...(toConfirm > 0 ? { tabBarBadge: toConfirm } : {}),
           tabBarIcon: ({ color, size }) => <Ionicons color={color} name="people-outline" size={size} />
         }}
       />
