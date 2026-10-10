@@ -78,15 +78,6 @@ export async function getLive(date?: string): Promise<LiveSummary> {
   return data as LiveSummary;
 }
 
-/** Marque une livraison comme préparée (ou remet « planifiée ») */
-export async function setPrepared(deliveryId: string, prepared: boolean): Promise<void> {
-  const { error } = await requireSupabase().rpc('update_delivery_status', {
-    p_delivery_id: deliveryId,
-    p_status: prepared ? 'ready' : 'scheduled'
-  });
-  if (error) throw error;
-}
-
 export async function listReviews(): Promise<AdminReview[]> {
   const { data, error } = await requireSupabase().rpc('admin_reviews');
   if (error) throw error;

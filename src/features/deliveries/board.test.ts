@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addressText,
+  NO_MEAT,
+  bowlContents,
   bowlRange,
+  filterBowls,
+  groupBowls,
+  hasFilter,
+  sortBowls,
   groupByPlat,
   kitchenOrder,
   countByStage,
@@ -121,5 +127,45 @@ describe('bols numérotés, triés par plat', () => {
     expect(bowlRange(groups[0]!.rows)).toBe('Bols n°1 à 2');
     expect(bowlRange(groups[1]!.rows)).toBe('Bol n°3');
     expect(bowlRange(groups[2]!.rows)).toBe('');
+  });
+});
+
+describe('contenu des bols : filtres et tris', () => {
+  const r = (id: string, plat: string | null, acc: string | null, viande: string | null, name: string, bowl: number | null = null) =>
+    row({ delivery_id: id, plat, accompagnement: acc, viande, customer_name: name, bowl_number: bowl });
+  const rows = [
+    r('1', 'Riz', 'Haricots', 'Cuisse', 'Anne', 1),
+    r('2', 'Riz', 'Pondu', null, 'Bob', 2),
+    r('3', 'Fufu', 'Haricots', 'Poisson', 'Cléo', 3),
+    r('4', 'Fufu', 'Pondu', 'Cuisse', 'Dan', 4)
+  ];
+
+  it('compte ce que contiennent les bols', () => {
+    const c = bowlContents(rows);
+    expect(c.plat).toEqual([{ name: 'Fufu', count: 2 }, { name: 'Riz', count: 2 }]);
+    expect(c.accompagnement).toEqual([{ name: 'Haricots', count: 2 }, { name: 'Pondu', count: 2 }]);
+    expect(c.viande).toEqual([{ name: 'Cuisse', count: 2 }, { name: 'Poisson', count: 1 }]);
+    expect(c.withoutMeat).toBe(1);
+  });
+
+  it('filtre : les bols qui contiennent tout ce qui est demandé', () => {
+    expect(hasFilter({})).toBe(false);
+    expect(filterBowls(rows, { plat: 'Riz' }).map((x) => x.delivery_id)).toEqual(['1', '2']);
+    expect(filterBowls(rows, { plat: 'Riz', viande: 'Cuisse' }).map((x) => x.delivery_id)).toEqual(['1']);
+    expect(filterBowls(rows, { accompagnement: 'Pondu', viande: NO_MEAT }).map((x) => x.delivery_id)).toEqual(['2']);
+    expect(filterBowls(rows, { viande: 'Poisson' }).map((x) => x.delivery_id)).toEqual(['3']);
+  });
+
+  it('trie par viande puis plat, les bols sans viande à la fin', () => {
+    expect(sortBowls(rows, 'viande').map((x) => x.delivery_id)).toEqual(['4', '1', '3', '2']);
+    expect(sortBowls(rows, 'client').map((x) => x.customer_name)).toEqual(['Anne', 'Bob', 'Cléo', 'Dan']);
+    expect(sortBowls(rows, 'bol').map((x) => x.delivery_id)).toEqual(['1', '2', '3', '4']);
+  });
+
+  it('regroupe selon le tri choisi', () => {
+    expect(groupBowls(rows, 'viande').map((g) => [g.title, g.rows.length])).toEqual([['Cuisse', 2], ['Poisson', 1], ['Sans viande', 1]]);
+    expect(groupBowls(rows, 'accompagnement').map((g) => [g.title, g.rows.length])).toEqual([['Haricots', 2], ['Pondu', 2]]);
+    expect(groupBowls(rows, 'bol')).toHaveLength(1);
+    expect(groupBowls([], 'plat')).toEqual([]);
   });
 });

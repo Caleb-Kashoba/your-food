@@ -70,7 +70,7 @@ export default function DashboardScreen() {
       {hasPermission('orders.read') ? (
         <Pressable accessibilityRole="button" onPress={() => router.push('/orders/live')} style={styles.liveLink}>
           <Ionicons color={colors.primary} name="checkbox-outline" size={22} />
-          <Text style={styles.liveLinkText}>Suivi des commandes du jour</Text>
+          <Text style={styles.liveLinkText}>Commandes du jour</Text>
           <Ionicons color={colors.muted} name="chevron-forward" size={20} />
         </Pressable>
       ) : null}

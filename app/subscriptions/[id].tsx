@@ -5,6 +5,7 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
+import { DateField } from '@/components/ui/DateField';
 import { Card } from '@/components/ui/Card';
 import { Chips } from '@/components/ui/Chips';
 import { Screen } from '@/components/ui/Screen';
@@ -250,7 +251,6 @@ function DatesEditor({ id, startDate, endDate, onSaved }: { id: string; startDat
   const [end, setEnd] = useState(endDate);
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
-  const dateOk = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
   const changed = start !== startDate || end !== endDate;
   const save = async () => {
     try {
@@ -269,10 +269,10 @@ function DatesEditor({ id, startDate, endDate, onSaved }: { id: string; startDat
     <View style={styles.notesEditor}>
       <Text style={styles.sectionTitle}>Modifier les dates</Text>
       <Text style={styles.meta}>Les livraisons hors de la nouvelle période sont supprimées, celles de la nouvelle période sont créées. Le prix ne change pas (utilise « Prix exceptionnel » si besoin).</Text>
-      <AppInput label="Début (AAAA-MM-JJ)" onChangeText={setStart} value={start} />
-      <AppInput label="Fin (AAAA-MM-JJ)" onChangeText={setEnd} value={end} />
+      <DateField label="Début" onChange={(value) => { setStart(value); if (end < value) setEnd(value); }} value={start} />
+      <DateField label="Fin" min={start} onChange={setEnd} value={end} />
       <AppInput label="Raison du changement" onChangeText={setReason} value={reason} />
-      <AppButton disabled={!changed || !dateOk(start) || !dateOk(end) || !reason.trim()} label="Modifier les dates" loading={saving} onPress={() => void save()} variant="secondary" />
+      <AppButton disabled={!changed || end < start || !reason.trim()} label="Modifier les dates" loading={saving} onPress={() => void save()} variant="secondary" />
     </View>
   );
 }

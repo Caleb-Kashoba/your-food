@@ -9,10 +9,13 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import {
   addressText,
   bowlRange,
+  filterBowls,
+  groupBowls,
+  sortBowls,
+  type BowlFilter,
+  type SortKey,
   countByStage,
   daysOf,
-  groupByPlat,
-  kitchenOrder,
   mealParts,
   nextStatus,
   rowsOfDay,
@@ -21,6 +24,7 @@ import {
   type BoardRow,
   type Stage
 } from '@/features/deliveries/board';
+import { BowlTools } from '@/features/deliveries/BowlTools';
 import { listBoard, updateDeliveryStatus } from '@/features/deliveries/deliveries.service';
 import { useTableRealtime } from '@/hooks/use-table-realtime';
 import { addLocalDays, capitalizeFirst, formatDayChip, formatDayMonth, localDateKey } from '@/lib/dates';
@@ -66,6 +70,9 @@ export default function TodayScreen() {
   const [day, setDay] = useState(today);
   const [mode, setMode] = useState<Mode>('preparation');
   const [prepFilter, setPrepFilter] = useState<PrepFilter>('a_faire');
+  // Contenu des bols : tri et filtres communs à la préparation et à la livraison
+  const [sort, setSort] = useState<SortKey>('bol');
+  const [contentFilter, setContentFilter] = useState<BowlFilter>({});
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('a_livrer');
 
   const board = useQuery({
@@ -147,6 +154,10 @@ export default function TodayScreen() {
       {mode === 'preparation' ? (
         <PreparationPart
           canAct={canAct}
+          contentFilter={contentFilter}
+          onContentFilter={setContentFilter}
+          onSort={setSort}
+          sort={sort}
           filter={prepFilter}
           onAct={act}
           onFilter={setPrepFilter}
@@ -156,6 +167,10 @@ export default function TodayScreen() {
       ) : (
         <DeliveryPart
           canAct={canAct}
+          contentFilter={contentFilter}
+          onContentFilter={setContentFilter}
+          onSort={setSort}
+          sort={sort}
           filter={deliveryFilter}
           onAct={act}
           onFilter={setDeliveryFilter}
@@ -167,8 +182,9 @@ export default function TodayScreen() {
   );
 }
 
-function PreparationPart({ rows, filter, onFilter, onAct, canAct, pending }: {
+function PreparationPart({ rows, filter, onFilter, onAct, canAct, pending, sort, onSort, contentFilter, onContentFilter }: {
   rows: BoardRow[]; filter: PrepFilter; onFilter: (value: PrepFilter) => void; onAct: (row: BoardRow) => void; canAct: boolean; pending: boolean;
+  sort: SortKey; onSort: (value: SortKey) => void; contentFilter: BowlFilter; onContentFilter: (value: BowlFilter) => void;
 }) {
   const totals = totalsToPrepare(rows);
   const waiting = rows.filter((row) => stageOf(row) === 'attente_choix');
@@ -178,8 +194,9 @@ function PreparationPart({ rows, filter, onFilter, onAct, canAct, pending }: {
     if (filter === 'pretes') return stage === 'prete' || stage === 'livree';
     return true;
   });
-  const groups = groupByPlat(visible);
-  const numbered = rows.some((row) => row.bowl_number !== null);
+  const shownRows = filterBowls(visible, contentFilter);
+  const groups = groupBowls(shownRows, sort);
+  const numbered = rows.some((row) => row.bowl_number != null);
   const menuOpen = rows.some((row) => row.menu_status === 'open');
 
   return (
@@ -198,24 +215,27 @@ function PreparationPart({ rows, filter, onFilter, onAct, canAct, pending }: {
       {waiting.length > 0 ? (
         <View style={styles.notice}>
           <Text style={styles.noticeText}>
-            {waiting.length} client{waiting.length > 1 ? 's n’ont' : ' n’a'} pas encore de repas : le repas par défaut arrive dans la minute s’il y a un menu, sinon saisis-le dans « Suivi du jour ».
+            {waiting.length} client{waiting.length > 1 ? 's n’ont' : ' n’a'} pas encore de repas : le repas par défaut arrive dans la minute s’il y a un menu, sinon saisis-le dans « Commandes du jour ».
           </Text>
         </View>
       ) : null}
 
       {!numbered && menuOpen ? (
-        <Text style={styles.hint}>Les bols seront numérotés au verrouillage du menu (minuit). La liste est déjà triée par plat.</Text>
+        <Text style={styles.hint}>Les bols seront numérotés au verrouillage du menu (minuit). Tu peux déjà les trier et les filtrer.</Text>
       ) : null}
       <Chips onChange={onFilter} options={PREP_FILTERS} value={filter} />
-      {visible.length === 0 ? <Text style={styles.empty}>Rien à afficher avec ce filtre.</Text> : null}
+      <BowlTools filter={contentFilter} onFilter={onContentFilter} onSort={onSort} rows={visible} sort={sort} />
+      {shownRows.length === 0 ? <Text style={styles.empty}>Rien à afficher avec ces filtres.</Text> : null}
       {groups.map((group) => (
-        <View key={group.plat} style={styles.group}>
+        <View key={group.title ?? 'tous'} style={styles.group}>
+          {group.title ? (
           <View style={styles.groupHeader}>
-            <Text style={styles.groupTitle}>{group.plat}</Text>
+            <Text style={styles.groupTitle}>{group.title}</Text>
             <Text style={styles.groupMeta}>
               {group.rows.length} bol{group.rows.length > 1 ? 's' : ''}{bowlRange(group.rows) ? ` · ${bowlRange(group.rows)}` : ''}
             </Text>
           </View>
+          ) : null}
           {group.rows.map((row) => (
             <MealCard canAct={canAct} key={row.delivery_id} mode="preparation" onAct={() => onAct(row)} pending={pending} row={row} />
           ))}
@@ -225,8 +245,9 @@ function PreparationPart({ rows, filter, onFilter, onAct, canAct, pending }: {
   );
 }
 
-function DeliveryPart({ rows, filter, onFilter, onAct, canAct, pending }: {
+function DeliveryPart({ rows, filter, onFilter, onAct, canAct, pending, sort, onSort, contentFilter, onContentFilter }: {
   rows: BoardRow[]; filter: DeliveryFilter; onFilter: (value: DeliveryFilter) => void; onAct: (row: BoardRow) => void; canAct: boolean; pending: boolean;
+  sort: SortKey; onSort: (value: SortKey) => void; contentFilter: BowlFilter; onContentFilter: (value: BowlFilter) => void;
 }) {
   const counts = countByStage(rows);
   const options: { value: DeliveryFilter; label: string }[] = [
@@ -234,19 +255,22 @@ function DeliveryPart({ rows, filter, onFilter, onAct, canAct, pending }: {
     { value: 'livrees', label: `Livrés · ${counts.livree}` },
     { value: 'pas_pretes', label: `Pas encore prêts · ${counts.a_preparer + counts.attente_choix}` }
   ];
-  const visible = kitchenOrder(rows).filter((row) => {
+  const stageRows = rows.filter((row) => {
     const stage = stageOf(row);
     if (filter === 'a_livrer') return stage === 'prete';
     if (filter === 'livrees') return stage === 'livree';
     return stage === 'a_preparer' || stage === 'attente_choix';
   });
 
+  const visible = sortBowls(filterBowls(stageRows, contentFilter), sort);
+
   return (
     <>
       <Chips onChange={onFilter} options={options} value={filter} />
+      <BowlTools filter={contentFilter} onFilter={onContentFilter} onSort={onSort} rows={stageRows} sort={sort} />
       {visible.length === 0 ? (
         <Text style={styles.empty}>
-          {filter === 'a_livrer' ? 'Aucun repas prêt à livrer pour le moment : prépare les bols dans l’onglet Préparation.' : 'Rien à afficher avec ce filtre.'}
+          {filter === 'a_livrer' && stageRows.length === 0 ? 'Aucun repas prêt à livrer pour le moment : prépare les bols dans l’onglet Préparation.' : 'Rien à afficher avec ces filtres.'}
         </Text>
       ) : null}
       {visible.map((row) => (
@@ -267,7 +291,7 @@ function MealCard({ row, mode, canAct, pending, onAct }: { row: BoardRow; mode: 
   return (
     <View style={[styles.meal, stage === 'annulee' && styles.mealDim]}>
       <View style={styles.mealHeader}>
-        {row.bowl_number !== null ? (
+        {row.bowl_number != null ? (
           <View accessibilityLabel={`Bol numéro ${row.bowl_number}`} style={styles.bowlNumber}>
             <Text style={styles.bowlNumberLabel}>BOL</Text>
             <Text style={styles.bowlNumberValue}>{row.bowl_number}</Text>

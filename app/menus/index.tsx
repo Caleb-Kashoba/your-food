@@ -77,7 +77,7 @@ function DayCard({ day, canWrite, past, onEdit, onFollow }: { day: WeekDay; canW
 
       <View style={styles.actions}>
         {canWrite && !locked && !past ? <AppButton label={day.published ? 'Modifier' : 'Publier'} onPress={onEdit} variant={day.published ? 'secondary' : 'primary'} /> : null}
-        {day.published ? <AppButton label="Suivi du jour" onPress={onFollow} variant="ghost" /> : null}
+        {day.published ? <AppButton label="Commandes" onPress={onFollow} variant="ghost" /> : null}
       </View>
     </Card>
   );

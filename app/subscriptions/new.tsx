@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
+import { DateField } from '@/components/ui/DateField';
 import { Card } from '@/components/ui/Card';
 import { Chips } from '@/components/ui/Chips';
 import { Screen } from '@/components/ui/Screen';
@@ -49,7 +50,6 @@ export default function NewSubscriptionScreen() {
   const [pickedPlan, setPickedPlan] = useState('');
   const [weeks, setWeeks] = useState(1);
   const [pickedStart, setPickedStart] = useState<string | null>(params.startDate ? mondayOnOrAfter(params.startDate) : null);
-  const [otherDate, setOtherDate] = useState('');
   const [override, setOverride] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -79,7 +79,7 @@ export default function NewSubscriptionScreen() {
   const weekly = plan ? weeklyPrice(plan) : null;
   const overrideValue = Number.parseFloat(override.replace(/\s/g, '').replace(',', '.'));
   const total = weekly !== null ? subscriptionTotal(weekly, weeks, Number.isFinite(overrideValue) ? overrideValue : null) : null;
-  const chosenStart = otherDate.trim() ? otherDate.trim() : startDate;
+  const chosenStart = startDate;
   const validStart = isMonday(chosenStart);
   const endDate = validStart ? fridayAfterWeeks(chosenStart, weeks) : null;
 
@@ -93,7 +93,7 @@ export default function NewSubscriptionScreen() {
       return;
     }
     if (!validStart) {
-      setError('Un abonnement commence un lundi : choisis un lundi dans la liste, ou saisis-en un (AAAA-MM-JJ).');
+      setError('Un abonnement commence un lundi : choisis un lundi dans la liste ou dans le calendrier.');
       return;
     }
     try {
@@ -196,14 +196,14 @@ export default function NewSubscriptionScreen() {
 
       <Text style={styles.sectionTitle}>Début (un lundi)</Text>
       <Chips
-        onChange={(value) => { setStartDate(value); setOtherDate(''); }}
+        onChange={setStartDate}
         options={mondays.map((value) => ({
           value,
           label: `${formatDayChip(value)}${value === thisMonday ? ' (cette semaine)' : ''}${value === suggestedStart ? ' (après l’actuel)' : ''}`
         }))}
-        value={otherDate.trim() ? null : startDate}
+        value={mondays.includes(startDate) ? startDate : null}
       />
-      <AppInput label="Ou un autre lundi (AAAA-MM-JJ)" onChangeText={setOtherDate} placeholder="Facultatif" value={otherDate} />
+      <DateField label="Ou un autre lundi" mondaysOnly onChange={setStartDate} value={startDate} />
       {endDate ? <Text style={styles.endDate}>Du {formatLocalDate(chosenStart)} au {formatLocalDate(endDate)} (lundi → vendredi)</Text> : null}
       {total !== null ? (
         <Text style={styles.total}>

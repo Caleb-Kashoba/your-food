@@ -1,8 +1,7 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { Card } from '@/components/ui/Card';
@@ -11,7 +10,7 @@ import { Screen } from '@/components/ui/Screen';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { lockMenuNow } from '@/features/menus/menus.service';
-import { getLive, setPrepared, type LiveRow, type LiveState } from '@/features/orders/orders.service';
+import { getLive, type LiveRow, type LiveState } from '@/features/orders/orders.service';
 import { StaffOrderSheet } from '@/features/orders/StaffOrderSheet';
 import { addLocalDays, capitalizeFirst, formatDayMonth, localDateKey, nextWorkingDay } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
@@ -31,10 +30,14 @@ function previousWorkingDay(date: string): string {
   return previous;
 }
 
-/** Suivi d'un jour : qui a commandé quoi, qui n'a pas encore choisi, et la liste à préparer (actualisé toutes les 15 s) */
+/**
+ * Commandes d'un jour : qui a commandé quoi, qui n'a pas encore de repas, saisie ou correction d'un repas (actualisé toutes les 15 s).
+ * La préparation des bols et la livraison se font dans l'onglet « Aujourd'hui » : on ne les marque qu'à un seul endroit.
+ */
 export default function LiveScreen() {
   const params = useLocalSearchParams<{ date?: string }>();
   const { hasPermission } = useAuth();
+  const router = useRouter();
   const queryClient = useQueryClient();
   // On commande la veille : le suivi s'ouvre sur le prochain jour de service (celui qu'on est en train de commander)
   const [date, setDate] = useState<string>(params.date ?? nextWorkingDay(localDateKey()));
@@ -45,11 +48,6 @@ export default function LiveScreen() {
   const live = useQuery({ queryKey: ['orders', 'live', date], queryFn: () => getLive(date), refetchInterval: 15_000 });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['orders'] });
 
-  const prepare = useMutation({
-    mutationFn: (row: LiveRow) => setPrepared(row.delivery_id, !row.prepared),
-    onSuccess: refresh,
-    onError: (caught) => setError(getErrorMessage(caught))
-  });
   const lock = useMutation({
     mutationFn: (day: string) => lockMenuNow(day),
     onSuccess: async () => {
@@ -67,13 +65,11 @@ export default function LiveScreen() {
 
   const data = live.data;
   const count = (state: LiveState) => data.rows.filter((row) => row.state === state).length;
-  const toPrepare = data.rows.filter((row) => ['commande', 'defaut'].includes(row.state));
-  const prepared = toPrepare.filter((row) => row.prepared).length;
   const today = localDateKey();
 
   return (
     <Screen>
-      <Text style={styles.title}>Suivi du jour</Text>
+      <Text style={styles.title}>Commandes du jour</Text>
       <View style={styles.nav}>
         <AppButton label="‹" onPress={() => setDate(previousWorkingDay(data.date))} variant="ghost" />
         <Text style={styles.date}>{capitalizeFirst(formatDayMonth(data.date))}{data.date === today ? ' (aujourd’hui)' : data.date === nextWorkingDay(today) ? ' (prochain repas)' : ''}</Text>
@@ -90,8 +86,10 @@ export default function LiveScreen() {
           <Counter label="En attente" value={count('en_attente')} />
           <Counter label="Annulés" value={count('annule')} />
         </View>
-        {toPrepare.length > 0 ? <Text style={styles.progress}>{prepared} / {toPrepare.length} repas préparés</Text> : null}
       </Card>
+      {hasPermission('deliveries.read') ? (
+        <AppButton label="Préparer et livrer les bols (Aujourd’hui)" onPress={() => router.push('/(tabs)/today')} variant="secondary" />
+      ) : null}
 
       {data.menu_status === 'open' && hasPermission('menus.write') ? (
         <AppButton label="Verrouiller maintenant" onPress={() => setConfirmLock(true)} variant="secondary" />
@@ -113,13 +111,12 @@ export default function LiveScreen() {
       <Text style={styles.section}>Livraisons ({data.rows.length})</Text>
       {data.rows.map((row) => {
         const label = STATE_LABEL[row.state];
-        const canPrepare = ['commande', 'defaut'].includes(row.state) && hasPermission('deliveries.update');
         const canEdit = hasPermission('orders.write') && !['ready', 'out_for_delivery', 'delivered', 'failed'].includes(row.delivery_status);
         return (
           <Card key={row.delivery_id} style={styles.row}>
             <View style={styles.rowTop}>
               <View style={styles.rowText}>
-                <Text style={styles.name}>{row.bowl_number !== null ? `Bol n°${row.bowl_number} · ` : ''}{row.customer_name}</Text>
+                <Text style={styles.name}>{row.bowl_number != null ? `Bol n°${row.bowl_number} · ` : ''}{row.customer_name}</Text>
                 <Text style={styles.meta}>{row.plan_name}{row.phone ? ` · ${row.phone}` : ''}</Text>
               </View>
               <View style={[styles.pill, { backgroundColor: label.bg }]}><Text style={styles.pillText}>{label.text}</Text></View>
@@ -131,12 +128,6 @@ export default function LiveScreen() {
                 onPress={() => setEditing(row)}
                 variant="secondary"
               />
-            ) : null}
-            {canPrepare ? (
-              <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: row.prepared }} onPress={() => prepare.mutate(row)} style={styles.prepare}>
-                <Ionicons color={row.prepared ? colors.success : colors.muted} name={row.prepared ? 'checkbox' : 'square-outline'} size={24} />
-                <Text style={styles.prepareText}>{row.prepared ? 'Préparé' : 'Marquer comme préparé'}</Text>
-              </Pressable>
             ) : null}
           </Card>
         );
@@ -177,7 +168,6 @@ const styles = StyleSheet.create({
   counter: { alignItems: 'center', flex: 1 },
   counterValue: { color: colors.primary, fontSize: 26, fontWeight: '900' },
   counterLabel: { color: colors.muted, fontSize: 11, fontWeight: '700' },
-  progress: { color: colors.success, fontSize: 14, fontWeight: '800' },
   error: { color: colors.danger, fontSize: 14, fontWeight: '600' },
   section: { color: colors.primaryDark, fontSize: 17, fontWeight: '800' },
   tallies: { gap: spacing.sm },
@@ -191,7 +181,5 @@ const styles = StyleSheet.create({
   meta: { color: colors.muted, fontSize: 12 },
   pill: { borderRadius: radii.round, paddingHorizontal: spacing.sm, paddingVertical: 4 },
   pillText: { color: colors.text, fontSize: 11, fontWeight: '800' },
-  meal: { color: colors.text, fontSize: 14 },
-  prepare: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 40 },
-  prepareText: { color: colors.text, fontSize: 14, fontWeight: '700' }
+  meal: { color: colors.text, fontSize: 14 }
 });

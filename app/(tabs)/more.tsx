@@ -9,7 +9,7 @@ import { getErrorMessage } from '@/lib/errors';
 import { colors, radii, spacing } from '@/theme/colors';
 
 const links: { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; href: Href; permission?: string }[] = [
-  { label: 'Suivi du jour', icon: 'checkbox-outline' as const, href: '/orders/live' as const, permission: 'orders.read' },
+  { label: 'Commandes du jour', icon: 'checkbox-outline' as const, href: '/orders/live' as const, permission: 'orders.read' },
   { label: 'Menus de la semaine', icon: 'calendar-number-outline' as const, href: '/menus' as const, permission: 'menus.read' },
   { label: 'Carte des plats', icon: 'fast-food-outline' as const, href: '/catalog' as const, permission: 'menus.read' },
   { label: 'Avis des clients', icon: 'chatbubble-ellipses-outline' as const, href: '/reviews' as const, permission: 'orders.read' },

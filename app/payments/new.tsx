@@ -5,6 +5,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
+import { DateField } from '@/components/ui/DateField';
 import { Screen } from '@/components/ui/Screen';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { listPaymentMethods, recordPayment } from '@/features/payments/payments.service';
@@ -81,7 +82,7 @@ export default function NewPaymentScreen() {
           </Pressable>
         ))}
       </View>
-      <AppInput label="Date (AAAA-MM-JJ)" onChangeText={setDate} value={date} />
+      <DateField label="Date du paiement" max={localDateKey()} onChange={setDate} value={date} />
       <AppInput label="Référence" onChangeText={setReference} value={reference} />
       <AppButton label="Confirmer le paiement" loading={saving} onPress={() => void save()} />
     </Screen>

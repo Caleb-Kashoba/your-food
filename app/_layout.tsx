@@ -99,7 +99,7 @@ function AppNavigator() {
         <Stack.Screen name="catalog/index" options={{ title: 'Carte des plats' }} />
         <Stack.Screen name="menus/index" options={{ title: 'Menus' }} />
         <Stack.Screen name="menus/publish" options={{ title: 'Publier un menu' }} />
-        <Stack.Screen name="orders/live" options={{ title: 'Suivi du jour' }} />
+        <Stack.Screen name="orders/live" options={{ title: 'Commandes du jour' }} />
         <Stack.Screen name="reviews/index" options={{ title: 'Avis des clients' }} />
         <Stack.Screen name="stats/index" options={{ title: 'Statistiques' }} />
         <Stack.Screen name="customers/new" options={{ title: 'Nouveau client' }} />

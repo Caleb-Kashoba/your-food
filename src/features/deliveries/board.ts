@@ -51,6 +51,112 @@ export function mealParts(row: BoardRow): string[] {
   return [row.plat, row.accompagnement, row.viande].filter((part): part is string => Boolean(part));
 }
 
+export type SortKey = 'bol' | 'plat' | 'accompagnement' | 'viande' | 'client';
+
+export const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: 'bol', label: 'N° de bol' },
+  { value: 'plat', label: 'Plat' },
+  { value: 'accompagnement', label: 'Accompagnement' },
+  { value: 'viande', label: 'Viande' },
+  { value: 'client', label: 'Client' }
+];
+
+/** Valeur du filtre « sans viande » (formule sans viande ce jour-là) */
+export const NO_MEAT = '__sans_viande__';
+
+export interface BowlFilter {
+  plat?: string | null;
+  accompagnement?: string | null;
+  viande?: string | null;
+}
+
+export function hasFilter(filter: BowlFilter): boolean {
+  return Boolean(filter.plat || filter.accompagnement || filter.viande);
+}
+
+/** Garde les bols qui contiennent tout ce qui est demandé (plat ET accompagnement ET viande) */
+export function filterBowls(rows: BoardRow[], filter: BowlFilter): BoardRow[] {
+  return rows.filter((row) => {
+    if (filter.plat && row.plat !== filter.plat) return false;
+    if (filter.accompagnement && row.accompagnement !== filter.accompagnement) return false;
+    if (filter.viande === NO_MEAT && row.viande) return false;
+    if (filter.viande && filter.viande !== NO_MEAT && row.viande !== filter.viande) return false;
+    return true;
+  });
+}
+
+export interface ContentOption {
+  name: string;
+  count: number;
+}
+
+export interface BowlContents {
+  plat: ContentOption[];
+  accompagnement: ContentOption[];
+  viande: ContentOption[];
+  /** Bols sans viande (formule sans viande ce jour-là) */
+  withoutMeat: number;
+}
+
+/** Ce que contiennent les bols (hors annulés et sans repas), avec le nombre de bols pour chaque plat, accompagnement et viande */
+export function bowlContents(rows: BoardRow[]): BowlContents {
+  const tally = (pick: (row: BoardRow) => string | null): ContentOption[] => {
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const name = pick(row);
+      if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'fr'));
+  };
+  const withMeal = rows.filter((row) => row.plat);
+  return {
+    plat: tally((row) => row.plat),
+    accompagnement: tally((row) => row.accompagnement),
+    viande: tally((row) => row.viande),
+    withoutMeat: withMeal.filter((row) => !row.viande).length
+  };
+}
+
+const compose = (...parts: number[]) => parts.find((value) => value !== 0) ?? 0;
+
+/** Tri choisi par la cuisine : le tri principal d'abord, puis les autres éléments du bol, puis le client */
+export function sortBowls(rows: BoardRow[], key: SortKey): BoardRow[] {
+  if (key === 'bol') return kitchenOrder(rows);
+  const by = (row: BoardRow, other: BoardRow, field: 'plat' | 'accompagnement' | 'viande') => byName(row[field], other[field]);
+  return [...rows].sort((a, b) => {
+    switch (key) {
+      case 'plat':
+        return compose(by(a, b, 'plat'), by(a, b, 'accompagnement'), by(a, b, 'viande'), byName(a.customer_name, b.customer_name));
+      case 'accompagnement':
+        return compose(by(a, b, 'accompagnement'), by(a, b, 'plat'), by(a, b, 'viande'), byName(a.customer_name, b.customer_name));
+      case 'viande':
+        return compose(by(a, b, 'viande'), by(a, b, 'plat'), by(a, b, 'accompagnement'), byName(a.customer_name, b.customer_name));
+      default:
+        return byName(a.customer_name, b.customer_name);
+    }
+  });
+}
+
+export interface BowlGroup {
+  title: string | null;
+  rows: BoardRow[];
+}
+
+/** Regroupe selon le tri : par plat, accompagnement ou viande (« Sans viande » pour les autres) ; un seul groupe pour le tri par bol ou client */
+export function groupBowls(rows: BoardRow[], key: SortKey): BowlGroup[] {
+  const sorted = sortBowls(rows, key);
+  if (key === 'bol' || key === 'client') return sorted.length ? [{ title: null, rows: sorted }] : [];
+  const emptyTitle = key === 'viande' ? 'Sans viande' : 'Sans repas';
+  const groups: BowlGroup[] = [];
+  for (const row of sorted) {
+    const title = row[key] ?? emptyTitle;
+    const last = groups.at(-1);
+    if (last && last.title === title) last.rows.push(row);
+    else groups.push({ title, rows: [row] });
+  }
+  return groups;
+}
+
 /** « Riz + Haricots + Cuisse de poulet » */
 export function mealText(row: BoardRow): string {
   return mealParts(row).join(' + ');
@@ -64,9 +170,9 @@ const byName = (a: string | null, b: string | null) => (a ?? '\uffff').localeCom
  */
 export function kitchenOrder(rows: BoardRow[]): BoardRow[] {
   return [...rows].sort((a, b) => {
-    if (a.bowl_number !== null && b.bowl_number !== null) return a.bowl_number - b.bowl_number;
-    if (a.bowl_number !== null) return -1;
-    if (b.bowl_number !== null) return 1;
+    if (a.bowl_number != null && b.bowl_number != null) return a.bowl_number - b.bowl_number;
+    if (a.bowl_number != null) return -1;
+    if (b.bowl_number != null) return 1;
     return byName(a.plat, b.plat) || byName(a.accompagnement, b.accompagnement) || byName(a.viande, b.viande) || byName(a.customer_name, b.customer_name);
   });
 }
@@ -90,7 +196,7 @@ export function groupByPlat(rows: BoardRow[]): PlatGroup[] {
 
 /** « Bols n°3 à 7 » ou « Bol n°3 » ; vide si aucun numéro */
 export function bowlRange(rows: BoardRow[]): string {
-  const numbers = rows.map((row) => row.bowl_number).filter((value): value is number => value !== null);
+  const numbers = rows.map((row) => row.bowl_number).filter((value): value is number => value != null);
   if (numbers.length === 0) return '';
   const min = Math.min(...numbers);
   const max = Math.max(...numbers);
