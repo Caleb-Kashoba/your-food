@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   addressText,
   NO_MEAT,
+  bowlCombos,
   bowlContents,
+  comboKey,
   bowlRange,
   filterBowls,
   groupBowls,
@@ -167,5 +169,38 @@ describe('contenu des bols : filtres et tris', () => {
     expect(groupBowls(rows, 'accompagnement').map((g) => [g.title, g.rows.length])).toEqual([['Haricots', 2], ['Pondu', 2]]);
     expect(groupBowls(rows, 'bol')).toHaveLength(1);
     expect(groupBowls([], 'plat')).toEqual([]);
+  });
+});
+
+describe('commandes identiques', () => {
+  const r = (id: string, plat: string | null, acc: string | null, viande: string | null, name: string) =>
+    row({ delivery_id: id, plat, accompagnement: acc, viande, customer_name: name });
+  const rows = [
+    r('1', 'Riz', 'Haricots', 'Cuisse', 'Anne'),
+    r('2', 'Fufu', 'Pondu', 'Poisson', 'Bob'),
+    r('3', 'Riz', 'Haricots', 'Cuisse', 'Cléo'),
+    r('4', 'Riz', 'Haricots', null, 'Dan'),
+    r('5', 'Riz', 'Haricots', 'Cuisse', 'Éva')
+  ];
+
+  it('compte les bols exactement identiques, les plus fréquents d\'abord', () => {
+    const combos = bowlCombos(rows);
+    expect(combos[0]).toMatchObject({ label: 'Riz + Haricots + Cuisse', count: 3 });
+    expect(combos.map((c) => c.count)).toEqual([3, 1, 1]);
+    expect(comboKey(rows[0]!)).not.toBe(comboKey(rows[3]!));
+  });
+
+  it('filtre sur une commande exacte (le bol sans viande n\'en fait pas partie)', () => {
+    const key = comboKey(rows[0]!);
+    expect(filterBowls(rows, { combo: key }).map((x) => x.delivery_id)).toEqual(['1', '3', '5']);
+    expect(hasFilter({ combo: key })).toBe(true);
+  });
+
+  it('tri et groupes « commandes identiques » : les plus nombreuses en tête', () => {
+    const groups = groupBowls(rows, 'combo');
+    expect(groups.map((g) => [g.title, g.rows.length])).toEqual([
+      ['3 × Riz + Haricots + Cuisse', 3], ['1 × Fufu + Pondu + Poisson', 1], ['1 × Riz + Haricots', 1]
+    ]);
+    expect(sortBowls(rows, 'combo').slice(0, 3).map((x) => x.customer_name)).toEqual(['Anne', 'Cléo', 'Éva']);
   });
 });

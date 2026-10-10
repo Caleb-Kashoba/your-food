@@ -51,13 +51,14 @@ export function mealParts(row: BoardRow): string[] {
   return [row.plat, row.accompagnement, row.viande].filter((part): part is string => Boolean(part));
 }
 
-export type SortKey = 'bol' | 'plat' | 'accompagnement' | 'viande' | 'client';
+export type SortKey = 'bol' | 'plat' | 'accompagnement' | 'viande' | 'combo' | 'client';
 
 export const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'bol', label: 'N° de bol' },
   { value: 'plat', label: 'Plat' },
   { value: 'accompagnement', label: 'Accompagnement' },
   { value: 'viande', label: 'Viande' },
+  { value: 'combo', label: 'Commandes identiques' },
   { value: 'client', label: 'Client' }
 ];
 
@@ -68,15 +69,47 @@ export interface BowlFilter {
   plat?: string | null;
   accompagnement?: string | null;
   viande?: string | null;
+  /** Commande exacte (plat + accompagnement + viande), voir `comboKey` */
+  combo?: string | null;
+}
+
+/** Clé d'une commande : deux bols ont la même clé s'ils contiennent exactement la même chose */
+export function comboKey(row: BoardRow): string {
+  return [row.plat, row.accompagnement, row.viande].map((part) => part ?? '').join('||');
+}
+
+/** « Riz + Haricots + Cuisse » (« Riz + Haricots » sans viande) */
+export function comboLabel(row: BoardRow): string {
+  return [row.plat, row.accompagnement, row.viande].filter(Boolean).join(' + ');
+}
+
+export interface ComboOption {
+  key: string;
+  label: string;
+  count: number;
+}
+
+/** Commandes identiques : chaque commande exacte avec son nombre de bols, les plus fréquentes d'abord */
+export function bowlCombos(rows: BoardRow[]): ComboOption[] {
+  const map = new Map<string, ComboOption>();
+  for (const row of rows) {
+    if (!row.plat) continue;
+    const key = comboKey(row);
+    const entry = map.get(key);
+    if (entry) entry.count += 1;
+    else map.set(key, { key, label: comboLabel(row), count: 1 });
+  }
+  return [...map.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'fr'));
 }
 
 export function hasFilter(filter: BowlFilter): boolean {
-  return Boolean(filter.plat || filter.accompagnement || filter.viande);
+  return Boolean(filter.plat || filter.accompagnement || filter.viande || filter.combo);
 }
 
 /** Garde les bols qui contiennent tout ce qui est demandé (plat ET accompagnement ET viande) */
 export function filterBowls(rows: BoardRow[], filter: BowlFilter): BoardRow[] {
   return rows.filter((row) => {
+    if (filter.combo && (!row.plat || comboKey(row) !== filter.combo)) return false;
     if (filter.plat && row.plat !== filter.plat) return false;
     if (filter.accompagnement && row.accompagnement !== filter.accompagnement) return false;
     if (filter.viande === NO_MEAT && row.viande) return false;
@@ -122,6 +155,14 @@ const compose = (...parts: number[]) => parts.find((value) => value !== 0) ?? 0;
 /** Tri choisi par la cuisine : le tri principal d'abord, puis les autres éléments du bol, puis le client */
 export function sortBowls(rows: BoardRow[], key: SortKey): BoardRow[] {
   if (key === 'bol') return kitchenOrder(rows);
+  if (key === 'combo') {
+    const sizes = new Map(bowlCombos(rows).map((combo) => [combo.key, combo.count]));
+    return [...rows].sort((a, b) => {
+      const sa = a.plat ? sizes.get(comboKey(a)) ?? 0 : 0;
+      const sb = b.plat ? sizes.get(comboKey(b)) ?? 0 : 0;
+      return compose(sb - sa, byName(comboLabel(a) || null, comboLabel(b) || null), byName(a.customer_name, b.customer_name));
+    });
+  }
   const by = (row: BoardRow, other: BoardRow, field: 'plat' | 'accompagnement' | 'viande') => byName(row[field], other[field]);
   return [...rows].sort((a, b) => {
     switch (key) {
@@ -142,14 +183,17 @@ export interface BowlGroup {
   rows: BoardRow[];
 }
 
-/** Regroupe selon le tri : par plat, accompagnement ou viande (« Sans viande » pour les autres) ; un seul groupe pour le tri par bol ou client */
+/** Regroupe selon le tri : par plat, accompagnement, viande ou commande identique (« 5 × Riz + Haricots + Cuisse ») ; un seul groupe pour le tri par bol ou client */
 export function groupBowls(rows: BoardRow[], key: SortKey): BowlGroup[] {
   const sorted = sortBowls(rows, key);
   if (key === 'bol' || key === 'client') return sorted.length ? [{ title: null, rows: sorted }] : [];
   const emptyTitle = key === 'viande' ? 'Sans viande' : 'Sans repas';
   const groups: BowlGroup[] = [];
+  const sizes = key === 'combo' ? new Map(bowlCombos(rows).map((combo) => [combo.key, combo.count])) : null;
   for (const row of sorted) {
-    const title = row[key] ?? emptyTitle;
+    const title = key === 'combo'
+      ? (row.plat ? `${sizes?.get(comboKey(row)) ?? 1} × ${comboLabel(row)}` : emptyTitle)
+      : row[key] ?? emptyTitle;
     const last = groups.at(-1);
     if (last && last.title === title) last.rows.push(row);
     else groups.push({ title, rows: [row] });

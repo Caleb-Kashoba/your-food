@@ -4,6 +4,7 @@ import { Chips } from '@/components/ui/Chips';
 import {
   NO_MEAT,
   SORT_OPTIONS,
+  bowlCombos,
   bowlContents,
   filterBowls,
   hasFilter,
@@ -44,15 +45,28 @@ export function BowlTools({ rows, filter, onFilter, sort, onSort }: BowlToolsPro
     }
     return result;
   };
+  // Commandes identiques : seules celles qui reviennent au moins deux fois sont proposées (une commande unique n'a rien à regrouper)
+  const combos = bowlCombos(filterBowls(withMeal, { ...filter, combo: null })).filter((combo) => combo.count >= 2 || combo.key === filter.combo);
   const set = (category: 'plat' | 'accompagnement' | 'viande') => (value: string) => onFilter({ ...filter, [category]: value === ALL ? null : value });
   const shown = filterBowls(withMeal, filter).length;
-  const active = [filter.plat, filter.accompagnement, filter.viande === NO_MEAT ? 'sans viande' : filter.viande].filter(Boolean).join(' + ');
+  const chosenCombo = filter.combo ? bowlCombos(withMeal).find((combo) => combo.key === filter.combo)?.label : null;
+  const active = [chosenCombo, filter.plat, filter.accompagnement, filter.viande === NO_MEAT ? 'sans viande' : filter.viande].filter(Boolean).join(' + ');
 
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Contenu des bols</Text>
       <Text style={styles.label}>Trier par</Text>
       <Chips onChange={onSort} options={SORT_OPTIONS} value={sort} />
+      {combos.length > 0 ? (
+        <>
+          <Text style={styles.label}>Commandes identiques (exactement le même bol)</Text>
+          <Chips
+            onChange={(value) => onFilter({ ...filter, combo: value === ALL ? null : value })}
+            options={[{ value: ALL, label: 'Toutes' }, ...combos.map((combo) => ({ value: combo.key, label: `${combo.label} · ${combo.count}` }))]}
+            value={filter.combo ?? ALL}
+          />
+        </>
+      ) : null}
       <Text style={styles.label}>Plat</Text>
       <Chips onChange={set('plat')} options={chips('plat')} value={filter.plat ?? ALL} />
       <Text style={styles.label}>Accompagnement</Text>
