@@ -119,7 +119,7 @@ export default function LiveScreen() {
           <Card key={row.delivery_id} style={styles.row}>
             <View style={styles.rowTop}>
               <View style={styles.rowText}>
-                <Text style={styles.name}>{row.customer_name}</Text>
+                <Text style={styles.name}>{row.bowl_number !== null ? `Bol n°${row.bowl_number} · ` : ''}{row.customer_name}</Text>
                 <Text style={styles.meta}>{row.plan_name}{row.phone ? ` · ${row.phone}` : ''}</Text>
               </View>
               <View style={[styles.pill, { backgroundColor: label.bg }]}><Text style={styles.pillText}>{label.text}</Text></View>

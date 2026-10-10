@@ -18,6 +18,8 @@ export interface BoardRow {
   address_details: string | null;
   plan_name: string;
   delivery_status: string;
+  /** Numéro du bol, donné au verrouillage du menu (minuit), dans l'ordre des plats ; null tant que le menu est ouvert */
+  bowl_number: number | null;
   menu_status: 'aucun_menu' | 'open' | 'locked';
   order_id: string | null;
   state: BoardState;
@@ -28,7 +30,7 @@ export interface BoardRow {
 
 /**
  * Étape d'un repas :
- * - attente_choix : le client n'a pas encore choisi (le repas par défaut sera attribué à 20h00) ;
+ * - attente_choix : le client n'a pas encore de repas (pas de menu publié, ou livraison ajoutée à l'instant : le repas par défaut arrive dans la minute) ;
  * - a_preparer : choisi, le bol n'est pas encore rempli ;
  * - prete : le bol est prêt, à livrer ;
  * - livree : livré ;
@@ -52,6 +54,47 @@ export function mealParts(row: BoardRow): string[] {
 /** « Riz + Haricots + Cuisse de poulet » */
 export function mealText(row: BoardRow): string {
   return mealParts(row).join(' + ');
+}
+
+const byName = (a: string | null, b: string | null) => (a ?? '\uffff').localeCompare(b ?? '\uffff', 'fr', { sensitivity: 'base' });
+
+/**
+ * Ordre de la cuisine : par numéro de bol (donné au verrouillage), sinon par plat, accompagnement, viande, puis client.
+ * Les repas sans numéro (menu encore ouvert) sont classés de la même façon, après les bols numérotés.
+ */
+export function kitchenOrder(rows: BoardRow[]): BoardRow[] {
+  return [...rows].sort((a, b) => {
+    if (a.bowl_number !== null && b.bowl_number !== null) return a.bowl_number - b.bowl_number;
+    if (a.bowl_number !== null) return -1;
+    if (b.bowl_number !== null) return 1;
+    return byName(a.plat, b.plat) || byName(a.accompagnement, b.accompagnement) || byName(a.viande, b.viande) || byName(a.customer_name, b.customer_name);
+  });
+}
+
+export interface PlatGroup {
+  plat: string;
+  rows: BoardRow[];
+}
+
+/** Bols regroupés par plat, dans l'ordre de la cuisine (les repas sans plat à la fin, sous « Sans repas ») */
+export function groupByPlat(rows: BoardRow[]): PlatGroup[] {
+  const groups: PlatGroup[] = [];
+  for (const row of kitchenOrder(rows)) {
+    const plat = row.plat ?? 'Sans repas';
+    const last = groups.at(-1);
+    if (last && last.plat === plat) last.rows.push(row);
+    else groups.push({ plat, rows: [row] });
+  }
+  return groups;
+}
+
+/** « Bols n°3 à 7 » ou « Bol n°3 » ; vide si aucun numéro */
+export function bowlRange(rows: BoardRow[]): string {
+  const numbers = rows.map((row) => row.bowl_number).filter((value): value is number => value !== null);
+  if (numbers.length === 0) return '';
+  const min = Math.min(...numbers);
+  const max = Math.max(...numbers);
+  return min === max ? `Bol n°${min}` : `Bols n°${min} à ${max}`;
 }
 
 /** Adresse de livraison sur une ligne */

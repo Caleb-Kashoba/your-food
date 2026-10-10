@@ -6,17 +6,22 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
 import { Card } from '@/components/ui/Card';
+import { Chips } from '@/components/ui/Chips';
 import { Screen } from '@/components/ui/Screen';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { listPayments } from '@/features/payments/payments.service';
+import { listPlans } from '@/features/plans/plans.service';
+import { WEEK_CHOICES, fridayAfterWeeks, mondayOnOrAfter, weeklyPrice } from '@/features/subscriptions/subscription-rules';
 import {
   deleteSubscription,
+  changeSubscriptionPlan,
   extendSubscriptionWeeks,
   getSubscriptionDetail,
   listSubscriptionChanges,
   modifySubscription,
+  renewSubscriptionWeeks,
   setSubscriptionPrice,
   setSubscriptionStatus,
   updateSubscriptionNotes,
@@ -132,13 +137,16 @@ export default function SubscriptionDetailScreen() {
               <AppButton label="Créer un nouvel abonnement" onPress={() => router.push({ pathname: '/subscriptions/new', params: { customerId: item.customerId } })} variant="secondary" />
             </>
           ) : (
-            <ExtendEditor endDate={item.endDate} id={id} onSaved={refresh} />
+            <>
+              <ContinueEditor customerId={item.customerId} endDate={item.endDate} id={id} onSaved={refresh} planId={item.planId} />
+              <PlanEditor endDate={item.endDate} id={id} onSaved={refresh} planId={item.planId} startDate={item.startDate} />
+            </>
           )}
           {item.adminStatus !== 'cancelled' ? <DatesEditor endDate={item.endDate} id={id} onSaved={refresh} startDate={item.startDate} /> : null}
           <PriceEditor currency={item.currency} currentPrice={item.price} id={id} onSaved={refresh} />
           <NotesEditor id={id} initialNotes={item.notes ?? ''} onSaved={refresh} />
           <DeleteEditor id={id} onDeleted={async () => { await refresh(); if (router.canGoBack()) router.back(); else router.replace('/subscriptions'); }} />
-          <Text style={styles.meta}>Un client n’a qu’un abonnement en cours : on le rallonge. La formule ne change pas en cours de route (pour en changer : annule celui-ci puis crée-en un nouveau). Les dates et le prix ne changent que par une décision motivée, conservée dans l’historique.</Text>
+          <Text style={styles.meta}>Un client n’a jamais deux abonnements en même temps : on rallonge celui-ci, on change sa formule, ou on prépare l’abonnement suivant (au plus un à venir). Les dates et le prix ne changent que par une décision motivée, conservée dans l’historique.</Text>
         </Card>
       ) : null}
       {changes.data && changes.data.length > 0 ? (
@@ -151,23 +159,35 @@ export default function SubscriptionDetailScreen() {
   );
 }
 
-/** Rallonge l'abonnement en cours : fin + N semaines, prix + N × prix hebdomadaire */
-function ExtendEditor({ id, endDate, onSaved }: { id: string; endDate: string; onSaved: () => Promise<void> }) {
-  const [weeks, setWeeks] = useState('1');
+/**
+ * Continuer l'abonnement : même formule → on le rallonge (fin + N semaines) ;
+ * autre formule → un nouvel abonnement commence le lundi qui suit la fin de celui-ci.
+ */
+function ContinueEditor({ id, customerId, planId, endDate, onSaved }: { id: string; customerId: string; planId: string; endDate: string; onSaved: () => Promise<void> }) {
+  const plans = useQuery({ queryKey: ['plans', 'active'], queryFn: () => listPlans(true) });
+  const [weeks, setWeeks] = useState(1);
+  const [choice, setChoice] = useState(planId);
   const [saving, setSaving] = useState(false);
-  const count = Number.parseInt(weeks, 10);
-  const valid = Number.isInteger(count) && count >= 1 && count <= 52;
+  const plan = plans.data?.find((item) => item.id === choice);
+  const same = choice === planId;
+  const nextStart = mondayOnOrAfter(addLocalDays(endDate, 1));
+  const newEnd = same ? addLocalDays(endDate, weeks * 7) : fridayAfterWeeks(nextStart, weeks);
+  const amount = plan ? weeklyPrice(plan) * weeks : null;
+  const summary = same
+    ? `La fin passe du ${formatLocalDate(endDate)} au ${formatLocalDate(newEnd)}${amount !== null ? ` (+ ${formatMoney(amount, plan?.currency)})` : ''}.`
+    : `Un nouvel abonnement ${plan?.name ?? ''} du ${formatLocalDate(nextStart)} au ${formatLocalDate(newEnd)}${amount !== null ? ` (${formatMoney(amount, plan?.currency)})` : ''}, à la suite de celui-ci.`;
+
   const save = () => {
-    Alert.alert('Rallonger cet abonnement ?', `La fin passe au ${formatLocalDate(addLocalDays(endDate, count * 7))} et le prix augmente d’autant de semaines.`, [
+    Alert.alert(same ? 'Rallonger cet abonnement ?' : 'Créer l’abonnement suivant ?', summary, [
       { text: 'Annuler', style: 'cancel' },
       {
-        text: 'Rallonger',
+        text: same ? 'Rallonger' : 'Créer',
         onPress: () => {
           setSaving(true);
-          void extendSubscriptionWeeks(id, count)
+          void (same ? extendSubscriptionWeeks(id, weeks) : renewSubscriptionWeeks(customerId, weeks, choice))
             .then(onSaved)
-            .then(() => setWeeks('1'))
-            .catch((error: unknown) => Alert.alert('Rallongement impossible', getErrorMessage(error)))
+            .then(() => Alert.alert(same ? 'Abonnement rallongé' : 'Abonnement suivant créé', summary))
+            .catch((error: unknown) => Alert.alert('Action impossible', getErrorMessage(error)))
             .finally(() => setSaving(false));
         }
       }
@@ -175,10 +195,51 @@ function ExtendEditor({ id, endDate, onSaved }: { id: string; endDate: string; o
   };
   return (
     <View style={styles.notesEditor}>
-      <Text style={styles.sectionTitle}>Rallonger</Text>
-      <Text style={styles.meta}>Fin actuelle : {formatLocalDate(endDate)}.{valid ? ` Après : ${formatLocalDate(addLocalDays(endDate, count * 7))}.` : ''}</Text>
-      <AppInput keyboardType="number-pad" label="Nombre de semaines à ajouter" onChangeText={setWeeks} value={weeks} />
-      <AppButton disabled={!valid} label={valid ? `Rallonger de ${count} semaine${count > 1 ? 's' : ''}` : 'Rallonger'} loading={saving} onPress={save} variant="secondary" />
+      <Text style={styles.sectionTitle}>Continuer : rallonger ou enchaîner</Text>
+      <Text style={styles.meta}>Même formule : l’abonnement est rallongé. Autre formule : un nouvel abonnement commence le lundi qui suit la fin de celui-ci.</Text>
+      <Chips onChange={(value) => setWeeks(Number(value))} options={WEEK_CHOICES.map((item) => ({ value: String(item.weeks), label: item.label }))} value={String(weeks)} />
+      {plans.data ? (
+        <Chips onChange={setChoice} options={plans.data.map((item) => ({ value: item.id, label: `${item.name}${item.id === planId ? ' (actuelle)' : ''}` }))} value={choice} />
+      ) : null}
+      <Text style={styles.meta}>{summary}</Text>
+      <AppButton disabled={!plan} label={same ? `Rallonger de ${weeks} semaine${weeks > 1 ? 's' : ''}` : 'Créer l’abonnement suivant'} loading={saving} onPress={save} variant="secondary" />
+    </View>
+  );
+}
+
+/** Changer la formule de cet abonnement (motif obligatoire) : prix recalculé, viande des repas à venir ajustée */
+function PlanEditor({ id, planId, startDate, endDate, onSaved }: { id: string; planId: string; startDate: string; endDate: string; onSaved: () => Promise<void> }) {
+  const plans = useQuery({ queryKey: ['plans', 'active'], queryFn: () => listPlans(true) });
+  const [choice, setChoice] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const others = (plans.data ?? []).filter((item) => item.id !== planId);
+  const plan = others.find((item) => item.id === choice);
+  const weeks = Math.max(1, Math.ceil((Date.parse(`${endDate}T12:00:00Z`) - Date.parse(`${startDate}T12:00:00Z`) + 86_400_000) / (7 * 86_400_000)));
+  const save = async () => {
+    if (!plan) return;
+    try {
+      setSaving(true);
+      await changeSubscriptionPlan(id, plan.id, reason);
+      setChoice(null);
+      setReason('');
+      await onSaved();
+      Alert.alert('Formule changée', `L’abonnement passe en ${plan.name}. Les repas à venir ont été ajustés.`);
+    } catch (error) {
+      Alert.alert('Changement impossible', getErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+  if (others.length === 0) return null;
+  return (
+    <View style={styles.notesEditor}>
+      <Text style={styles.sectionTitle}>Changer la formule</Text>
+      <Text style={styles.meta}>Pour toute la période de cet abonnement. Le prix est recalculé ; les repas à venir suivent la nouvelle formule (viande comprise).</Text>
+      <Chips onChange={setChoice} options={others.map((item) => ({ value: item.id, label: item.name }))} value={choice} />
+      {plan ? <Text style={styles.meta}>Nouveau prix : {formatMoney(weeklyPrice(plan) * weeks, plan.currency)} ({weeks} semaine{weeks > 1 ? 's' : ''} × {formatMoney(weeklyPrice(plan), plan.currency)}).</Text> : null}
+      <AppInput label="Raison du changement" onChangeText={setReason} value={reason} />
+      <AppButton disabled={!plan || !reason.trim()} label="Changer la formule" loading={saving} onPress={() => void save()} variant="secondary" />
     </View>
   );
 }

@@ -46,7 +46,7 @@ export interface TodayMeal {
 }
 
 export interface TodayMenu {
-  /** Jour du repas proposé : demain (on commande la veille, jusqu'à 20h) */
+  /** Jour du repas proposé : demain (on commande la veille, jusqu'à minuit tant qu'aucune limite n'est réglée) */
   date: string;
   /** Jour où l'on commande (aujourd'hui) */
   order_date?: string;

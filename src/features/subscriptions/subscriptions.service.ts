@@ -19,6 +19,7 @@ interface SubscriptionRecord {
 }
 
 interface SubscriptionDetailRow {
+  plan_id: string;
   notes: string | null;
   renewed_from_id: string | null;
   created_at: string;
@@ -26,6 +27,7 @@ interface SubscriptionDetailRow {
 }
 
 export interface SubscriptionDetail extends SubscriptionSummary {
+  planId: string;
   notes: string | null;
   renewedFromId: string | null;
   createdAt: string;
@@ -65,7 +67,7 @@ export async function getSubscriptionDetail(id: string): Promise<SubscriptionDet
     client.from('subscription_overview').select('*').eq('id', id).single(),
     client
       .from('subscriptions')
-      .select('notes, renewed_from_id, created_at, subscription_service_days(weekday)')
+      .select('plan_id, notes, renewed_from_id, created_at, subscription_service_days(weekday)')
       .eq('id', id)
       .single()
   ]);
@@ -75,6 +77,7 @@ export async function getSubscriptionDetail(id: string): Promise<SubscriptionDet
   const detail = detailResult.data as unknown as SubscriptionDetailRow;
   return {
     ...summary,
+    planId: detail.plan_id,
     notes: detail.notes,
     renewedFromId: detail.renewed_from_id,
     createdAt: detail.created_at,
@@ -193,9 +196,12 @@ export async function listSubscriptionsToRenew(): Promise<RenewalItem[]> {
   }));
 }
 
-/** Renouvelle un client avec la même formule : le lundi qui suit la fin de son abonnement */
-export async function renewSubscriptionWeeks(customerId: string, weeks = 1): Promise<string> {
-  const { data, error } = await requireSupabase().rpc('renew_subscription_weeks', { p_customer: customerId, p_weeks: weeks });
+/**
+ * Renouvelle un client : même formule → l'abonnement en cours est rallongé ;
+ * autre formule → un nouvel abonnement commence le lundi qui suit la fin de l'abonnement en cours.
+ */
+export async function renewSubscriptionWeeks(customerId: string, weeks = 1, planId?: string | null): Promise<string> {
+  const { data, error } = await requireSupabase().rpc('renew_subscription_weeks', { p_customer: customerId, p_weeks: weeks, p_plan: planId ?? null });
   if (error) throw error;
   return data as string;
 }
@@ -249,4 +255,10 @@ export async function listSubscriptionChanges(subscriptionId: string): Promise<S
     details: row.details,
     createdAt: row.created_at
   }));
+}
+
+/** Change la formule d'un abonnement en cours (motif obligatoire) : prix recalculé, viande des repas à venir ajustée */
+export async function changeSubscriptionPlan(id: string, planId: string, reason: string): Promise<void> {
+  const { error } = await requireSupabase().rpc('change_subscription_plan', { p_subscription: id, p_plan: planId, p_reason: reason.trim() });
+  if (error) throw error;
 }

@@ -10,7 +10,7 @@ import { Screen } from '@/components/ui/Screen';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import type { MealCategory } from '@/features/client-area/client.service';
 import { listCatalog, listMenuWeek, publishMenu, publishMenus, updateMenu } from '@/features/menus/menus.service';
-import { localDateKey, nextWorkingDay } from '@/lib/dates';
+import { addLocalDays, capitalizeFirst, formatDayChip, formatDayMonth, localDateKey, nextWorkingDay } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { colors, radii, spacing } from '@/theme/colors';
 
@@ -21,6 +21,18 @@ const CATEGORIES: { value: MealCategory; label: string }[] = [
 ];
 // Plus d'heure limite pour le lancement : la valeur envoyée à la base est ignorée (la limite se réglera plus tard)
 const NO_DEADLINE = '13:00';
+
+/** Les 10 prochains jours ouvrés, aujourd'hui compris (un menu oublié peut encore être publié le jour même) */
+function upcomingWorkingDays(from: string, count = 10): string[] {
+  const days: string[] = [];
+  let day = from;
+  while (days.length < count) {
+    const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
+    if (weekday >= 1 && weekday <= 5) days.push(day);
+    day = addLocalDays(day, 1);
+  }
+  return days;
+}
 
 /**
  * Publication d'un menu (un jour, ou le même menu sur plusieurs jours ouvrés) ou modification d'un menu à venir.
@@ -87,7 +99,16 @@ export default function PublishMenuScreen() {
     <Screen>
       <Text style={styles.title}>{existing ? 'Modifier le menu' : 'Publier un menu'}</Text>
 
-      <AppInput editable={!existing} label="Jour (AAAA-MM-JJ)" onChangeText={(value) => { setDate(value); setSelected(null); }} value={date} />
+      {params.date ? (
+        <Text style={styles.section}>{capitalizeFirst(formatDayMonth(date))}</Text>
+      ) : (
+        <Chips
+          label="Jour du menu"
+          onChange={(value) => { setDate(value); setSelected(null); setError(null); }}
+          options={upcomingWorkingDays(localDateKey()).map((value) => ({ value, label: value === localDateKey() ? `Aujourd’hui (${formatDayChip(value)})` : formatDayChip(value) }))}
+          value={date}
+        />
+      )}
       {existing ? <Text style={styles.help}>Un menu existe déjà ce jour : tu peux changer ses plats. Les repas par défaut des clients se mettent à jour.</Text> : null}
       {!existing ? (
         <AppInput keyboardType="number-pad" label="Nombre de jours ouvrés (même menu)" onChangeText={setDays} value={days} />

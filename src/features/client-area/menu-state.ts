@@ -29,7 +29,7 @@ export function deriveMenuState(menu: TodayMenu, resuming = false): ClientMenuSt
   if (subscription === 'non_commence') return 'non_commence';
   if (subscription === 'suspendu' || subscription === 'annule' || subscription === 'aucun') return 'inactif';
   if (menu.menu_status === 'aucun_menu') return 'aucun_menu';
-  // L'abonnement commence demain : on ne commande pas la veille du premier jour, le repas est attribué à 20h
+  // L'abonnement commence demain : on ne commande pas la veille du premier jour, le repas par défaut est attribué automatiquement
   if (menu.first_day_default && menu.menu_status !== 'verrouille' && menu.order?.status !== 'confirmed') return 'premier_jour';
 
   const order = menu.order;

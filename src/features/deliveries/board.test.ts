@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addressText,
+  bowlRange,
+  groupByPlat,
+  kitchenOrder,
   countByStage,
   daysOf,
   mealText,
@@ -24,6 +27,7 @@ const row = (overrides: Partial<BoardRow> = {}): BoardRow => ({
   address_details: null,
   plan_name: 'Formule 2',
   delivery_status: 'scheduled',
+  bowl_number: null,
   menu_status: 'locked',
   order_id: 'o1',
   state: 'commande',
@@ -94,5 +98,28 @@ describe('tableau de préparation et de livraison', () => {
 
   it('liste les jours présents dans l’ordre', () => {
     expect(daysOf([row({ date: '2026-10-07' }), row({ date: '2026-10-06' }), row({ date: '2026-10-07' })])).toEqual(['2026-10-06', '2026-10-07']);
+  });
+});
+
+describe('bols numérotés, triés par plat', () => {
+  const r = (id: string, plat: string | null, acc: string | null, name: string, bowl: number | null = null) =>
+    row({ delivery_id: id, plat, accompagnement: acc, customer_name: name, bowl_number: bowl });
+
+  it('sans numéro (menu ouvert) : par plat, accompagnement puis client', () => {
+    const ordered = kitchenOrder([r('1', 'Riz', 'Pondu', 'Zoé'), r('2', 'Fufu', 'Haricots', 'Yves'), r('3', 'Riz', 'Haricots', 'Anne'), r('4', null, null, 'Bob')]);
+    expect(ordered.map((x) => x.delivery_id)).toEqual(['2', '3', '1', '4']);
+  });
+
+  it('avec numéros (menu verrouillé) : l\'ordre des numéros prime, les bols ajoutés après coup à la fin', () => {
+    const ordered = kitchenOrder([r('a', 'Riz', 'X', 'A', 2), r('b', 'Fufu', 'X', 'B', 1), r('c', 'Fufu', 'X', 'C', null)]);
+    expect(ordered.map((x) => x.delivery_id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('regroupe par plat et donne la plage de numéros', () => {
+    const groups = groupByPlat([r('1', 'Riz', 'A', 'A', 3), r('2', 'Fufu', 'A', 'B', 1), r('3', 'Fufu', 'B', 'C', 2), r('4', null, null, 'D')]);
+    expect(groups.map((g) => [g.plat, g.rows.length])).toEqual([['Fufu', 2], ['Riz', 1], ['Sans repas', 1]]);
+    expect(bowlRange(groups[0]!.rows)).toBe('Bols n°1 à 2');
+    expect(bowlRange(groups[1]!.rows)).toBe('Bol n°3');
+    expect(bowlRange(groups[2]!.rows)).toBe('');
   });
 });

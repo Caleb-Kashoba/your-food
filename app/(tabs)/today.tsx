@@ -8,8 +8,11 @@ import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   addressText,
+  bowlRange,
   countByStage,
   daysOf,
+  groupByPlat,
+  kitchenOrder,
   mealParts,
   nextStatus,
   rowsOfDay,
@@ -52,7 +55,7 @@ const STAGE_LABEL: Record<Stage, { text: string; bg: string }> = {
 
 /**
  * « Aujourd'hui » : deux parties pour la journée choisie.
- * - Préparation : le repas choisi par chaque client, à remplir bol par bol, avec le total à préparer ;
+ * - Préparation : les bols numérotés et regroupés par plat (numéros donnés au verrouillage du menu, à minuit), avec le total à préparer ;
  * - Livraison : les bols prêts, à livrer, avec l'adresse du client.
  * La vue se règle aussi sur les jours suivants, pour préparer à l'avance.
  */
@@ -175,6 +178,9 @@ function PreparationPart({ rows, filter, onFilter, onAct, canAct, pending }: {
     if (filter === 'pretes') return stage === 'prete' || stage === 'livree';
     return true;
   });
+  const groups = groupByPlat(visible);
+  const numbered = rows.some((row) => row.bowl_number !== null);
+  const menuOpen = rows.some((row) => row.menu_status === 'open');
 
   return (
     <>
@@ -192,15 +198,28 @@ function PreparationPart({ rows, filter, onFilter, onAct, canAct, pending }: {
       {waiting.length > 0 ? (
         <View style={styles.notice}>
           <Text style={styles.noticeText}>
-            {waiting.length} client{waiting.length > 1 ? 's n’ont' : ' n’a'} pas encore choisi : le repas le plus demandé leur sera attribué à 20h00.
+            {waiting.length} client{waiting.length > 1 ? 's n’ont' : ' n’a'} pas encore de repas : le repas par défaut arrive dans la minute s’il y a un menu, sinon saisis-le dans « Suivi du jour ».
           </Text>
         </View>
       ) : null}
 
+      {!numbered && menuOpen ? (
+        <Text style={styles.hint}>Les bols seront numérotés au verrouillage du menu (minuit). La liste est déjà triée par plat.</Text>
+      ) : null}
       <Chips onChange={onFilter} options={PREP_FILTERS} value={filter} />
       {visible.length === 0 ? <Text style={styles.empty}>Rien à afficher avec ce filtre.</Text> : null}
-      {visible.map((row) => (
-        <MealCard canAct={canAct} key={row.delivery_id} mode="preparation" onAct={() => onAct(row)} pending={pending} row={row} />
+      {groups.map((group) => (
+        <View key={group.plat} style={styles.group}>
+          <View style={styles.groupHeader}>
+            <Text style={styles.groupTitle}>{group.plat}</Text>
+            <Text style={styles.groupMeta}>
+              {group.rows.length} bol{group.rows.length > 1 ? 's' : ''}{bowlRange(group.rows) ? ` · ${bowlRange(group.rows)}` : ''}
+            </Text>
+          </View>
+          {group.rows.map((row) => (
+            <MealCard canAct={canAct} key={row.delivery_id} mode="preparation" onAct={() => onAct(row)} pending={pending} row={row} />
+          ))}
+        </View>
       ))}
     </>
   );
@@ -215,7 +234,7 @@ function DeliveryPart({ rows, filter, onFilter, onAct, canAct, pending }: {
     { value: 'livrees', label: `Livrés · ${counts.livree}` },
     { value: 'pas_pretes', label: `Pas encore prêts · ${counts.a_preparer + counts.attente_choix}` }
   ];
-  const visible = rows.filter((row) => {
+  const visible = kitchenOrder(rows).filter((row) => {
     const stage = stageOf(row);
     if (filter === 'a_livrer') return stage === 'prete';
     if (filter === 'livrees') return stage === 'livree';
@@ -248,6 +267,12 @@ function MealCard({ row, mode, canAct, pending, onAct }: { row: BoardRow; mode: 
   return (
     <View style={[styles.meal, stage === 'annulee' && styles.mealDim]}>
       <View style={styles.mealHeader}>
+        {row.bowl_number !== null ? (
+          <View accessibilityLabel={`Bol numéro ${row.bowl_number}`} style={styles.bowlNumber}>
+            <Text style={styles.bowlNumberLabel}>BOL</Text>
+            <Text style={styles.bowlNumberValue}>{row.bowl_number}</Text>
+          </View>
+        ) : null}
         <View style={styles.mealTitle}>
           <Text style={styles.name}>{row.customer_name}</Text>
           <Text style={styles.meta}>{row.plan_name}</Text>
@@ -330,5 +355,12 @@ const styles = StyleSheet.create({
   actionQuiet: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 },
   actionText: { color: colors.white, fontWeight: '900' },
   actionTextQuiet: { color: colors.muted },
-  hint: { color: colors.muted, fontSize: 13, fontStyle: 'italic' }
+  hint: { color: colors.muted, fontSize: 13, fontStyle: 'italic' },
+  group: { gap: spacing.sm },
+  groupHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: spacing.sm, borderBottomColor: colors.border, borderBottomWidth: 1, paddingBottom: spacing.xs, marginTop: spacing.sm },
+  groupTitle: { color: colors.primaryDark, fontSize: 18, fontWeight: '900' },
+  groupMeta: { color: colors.muted, fontSize: 13, fontWeight: '700' },
+  bowlNumber: { alignItems: 'center', justifyContent: 'center', minWidth: 52, borderRadius: radii.md, backgroundColor: colors.primary, paddingHorizontal: spacing.sm, paddingVertical: 4 },
+  bowlNumberLabel: { color: colors.white, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  bowlNumberValue: { color: colors.white, fontSize: 22, fontWeight: '900', lineHeight: 26 }
 });

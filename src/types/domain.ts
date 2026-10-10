@@ -85,7 +85,7 @@ export interface SubscriptionSummary {
   daysUntilExpiration: number;
   amountPaid: number;
   amountRemaining: number;
-  paymentState: 'unpaid' | 'partial' | 'paid';
+  paymentState: 'unpaid' | 'partial' | 'paid' | 'cancelled';
 }
 
 export interface Delivery {

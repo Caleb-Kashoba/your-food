@@ -13,6 +13,8 @@ export interface LiveRow {
   phone: string | null;
   plan_name: string;
   delivery_status: string;
+  /** Numéro du bol (donné au verrouillage du menu) */
+  bowl_number: number | null;
   order_id: string | null;
   state: LiveState;
   plat: string | null;
@@ -110,7 +112,7 @@ export async function getStaffOrderContext(customerId: string, date: string): Pr
   return data as StaffOrderContext;
 }
 
-/** Saisit ou modifie le repas d'un client (même après 20h, tant que le bol n'est pas prêt) */
+/** Saisit ou modifie le repas d'un client (même après le verrouillage, tant que le bol n'est pas prêt) */
 export async function staffSetOrder(params: { customerId: string; date: string; plat: string; accompagnement: string; viande: string | null }): Promise<void> {
   const { error } = await requireSupabase().rpc('staff_set_order', {
     p_customer: params.customerId,

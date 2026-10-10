@@ -110,7 +110,7 @@ export function RenewalsCard() {
                   accessibilityRole="link"
                   onPress={() => router.push({ pathname: '/subscriptions/[id]', params: { id: item.subscriptionId } })}
                 >
-                  <Text style={styles.link}>Autre durée</Text>
+                  <Text style={styles.link}>Autre durée ou formule</Text>
                 </Pressable>
               </View>
             ) : null}

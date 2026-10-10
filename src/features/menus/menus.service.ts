@@ -1,7 +1,7 @@
 /**
  * Carte des plats et menus du jour, côté administratrice. Chaque écriture passe par une fonction SQL qui applique
  * les règles (un menu compte au moins un plat, un accompagnement et une viande ; menu du lundi au vendredi ;
- * heure limite entre 11h et 19h ; verrouillage à 20h).
+ * plus d'heure limite pour l'instant : le menu se verrouille à minuit, le jour du repas).
  */
 
 import { requireSupabase } from '@/lib/supabase/client';
