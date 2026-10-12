@@ -12,7 +12,7 @@ import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { Stars } from '@/components/ui/Stars';
 import {
   cancelOrder,
-  getTodayMenu,
+  getWeekMenu,
   submitOrder,
   submitReview,
   type MealCategory,
@@ -20,16 +20,20 @@ import {
   type TodayMeal,
   type TodayMenu
 } from '@/features/client-area/client.service';
+import { DayStrip } from '@/features/client-area/DayStrip';
 import {
-  HEADLINES,
+  dayBefore,
   deriveMenuState,
   formatCountdown,
+  headlineFor,
   isComplete,
   isEditable,
+  isTomorrow,
   picksChanged,
   picksFromOrder,
   requiredCategories,
   secondsLeft,
+  whenLabel,
   type ClientMenuState,
   type Picks
 } from '@/features/client-area/menu-state';
@@ -67,25 +71,25 @@ const DELIVERY_LABEL: Record<TodayMeal['delivery_status'], string> = {
   cancelled: 'annulé'
 };
 
-/** Jour avant une date « AAAA-MM-JJ » (le jour où l'on commande) */
-function dayBefore(date: string): string {
-  return new Date(Date.parse(`${date}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
-}
-
 export default function ClientMenuScreen() {
   const queryClient = useQueryClient();
-  const menuQuery = useQuery({ queryKey: ['client', 'menu'], queryFn: getTodayMenu, refetchInterval: 60_000 });
-  const data = menuQuery.data;
+  const menuQuery = useQuery({ queryKey: ['client', 'menu'], queryFn: getWeekMenu, refetchInterval: 60_000 });
+  const week = menuQuery.data;
+  // Jour affiché : celui que le client a touché, sinon le premier de la liste
+  const [pickedDate, setPickedDate] = useState<string | null>(null);
+  const data = week ? (week.find((day) => day.date === pickedDate) ?? week[0]) : undefined;
+  const isFirstDay = data !== undefined && data === week?.[0];
 
   // Choix en cours de modification, rattachés à la commande enregistrée (réinitialisés quand elle change)
   const [edit, setEdit] = useState<{ signature: string; picks: Picks } | null>(null);
-  const [resuming, setResuming] = useState(false);
+  const [resumingDate, setResumingDate] = useState<string | null>(null);
+  const resuming = data !== undefined && resumingDate === data.date;
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
-  const signature = data?.order ? `${data.order.id}-${data.order.updated_at}` : 'aucune';
+  const signature = data ? `${data.date}-${data.order ? `${data.order.id}-${data.order.updated_at}` : 'aucune'}` : 'aucune';
   const picks: Picks = data ? (edit?.signature === signature ? edit.picks : picksFromOrder(data)) : {};
   const setPicks = (next: Picks) => setEdit({ signature, picks: next });
 
@@ -105,7 +109,7 @@ export default function ClientMenuScreen() {
         viande: requiredCategories(menu).includes('viande') ? picks.viande! : null
       }),
     onSuccess: async () => {
-      setResuming(false);
+      setResumingDate(null);
       setError(null);
       setFeedback('C’est noté, bon appétit !');
       await refresh();
@@ -121,9 +125,9 @@ export default function ClientMenuScreen() {
     mutationFn: (menuId: string) => cancelOrder(menuId),
     onSuccess: async () => {
       setConfirmCancel(false);
-      setResuming(false);
+      setResumingDate(null);
       setError(null);
-      setFeedback('Repas annulé pour demain.');
+      setFeedback(`Repas annulé pour ${data ? whenLabel(data) : 'ce jour'}.`);
       await refresh();
     },
     onError: (caught) => {
@@ -133,7 +137,7 @@ export default function ClientMenuScreen() {
   });
 
   if (menuQuery.isLoading) return <LoadingView label="Ouverture du menu…" />;
-  if (!data) return <ErrorView message={getErrorMessage(menuQuery.error)} onRetry={() => void menuQuery.refetch()} />;
+  if (!data || !week) return <ErrorView message={getErrorMessage(menuQuery.error)} onRetry={() => void menuQuery.refetch()} />;
 
   const state = deriveMenuState(data, resuming);
   const editable = isEditable(state);
@@ -145,6 +149,7 @@ export default function ClientMenuScreen() {
   const unchanged = hasActiveOrder && !data.order?.is_default && !picksChanged(data, picks);
   const left = secondsLeft(data, state, now, data.device_offset_ms);
   const notice = NOTICES[state];
+  const when = whenLabel(data);
   const showChoices = !['aucun_menu', 'non_commence', 'expire', 'inactif', 'premier_jour', 'dernier_jour'].includes(state);
 
   const pick = (category: MealCategory, optionId: string) => {
@@ -162,14 +167,20 @@ export default function ClientMenuScreen() {
         {data.subscription.plan_name ? <View style={styles.plan}><Text style={styles.planText}>{data.subscription.plan_name}</Text></View> : null}
       </View>
 
+      {week.length > 1 ? <DayStrip days={week} onSelect={setPickedDate} selected={data.date} /> : null}
+
       <View style={styles.heading}>
         <Text style={styles.date}>
-          {state === 'dernier_jour' ? `Aujourd’hui, ${formatDayMonth(data.order_date ?? dayBefore(data.date))}.` : `${state === 'aucun_menu' ? 'Demain' : 'Au menu demain'}, ${formatDayMonth(data.date)}.`}
+          {state === 'dernier_jour'
+            ? `Aujourd’hui, ${formatDayMonth(data.order_date ?? dayBefore(data.date))}.`
+            : isTomorrow(data)
+              ? `${state === 'aucun_menu' ? 'Demain' : 'Au menu demain'}, ${formatDayMonth(data.date)}.`
+              : `${state === 'aucun_menu' ? 'Pas de menu pour' : 'Au menu'} ${formatDayMonth(data.date)}.`}
         </Text>
-        <Text style={styles.headline}>{HEADLINES[state]}</Text>
+        <Text style={styles.headline}>{headlineFor(state, data)}</Text>
       </View>
 
-      {data.today_meal ? <TodayMealCard meal={data.today_meal} /> : null}
+      {isFirstDay && data.today_meal ? <TodayMealCard meal={data.today_meal} /> : null}
 
       {showChoices && data.menu && data.menu.lock_time ? (
         <Card style={styles.countdown}>
@@ -212,9 +223,9 @@ export default function ClientMenuScreen() {
       {state === 'aucun_menu' ? (
         <Banner
           text={data.next_menu_date
-            ? `Le prochain menu est celui de ${formatDayMonth(data.next_menu_date)} : tu le choisis ${formatDayMonth(dayBefore(data.next_menu_date))}.`
-            : 'L’administratrice n’a pas encore publié le menu de demain. Reviens un peu plus tard.'}
-          title="Pas de menu demain"
+            ? `Le prochain menu publié est celui de ${formatDayMonth(data.next_menu_date)}.`
+            : 'L’administratrice n’a pas encore publié ce menu. Reviens un peu plus tard.'}
+          title={`Pas de menu ${when}`}
           tone="info"
         />
       ) : null}
@@ -233,13 +244,13 @@ export default function ClientMenuScreen() {
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>{CATEGORY_TITLE[category]}</Text>
                   <Text style={styles.sectionTag}>
-                    {off ? 'pas demain' : !editable ? (state === 'defaut' ? 'choisi pour toi' : 'noté') : picks[category] ? 'choisi' : 'à toi de choisir'}
+                    {off ? (isTomorrow(data) ? 'pas demain' : 'pas ce jour') : !editable ? (state === 'defaut' ? 'choisi pour toi' : 'noté') : picks[category] ? 'choisi' : 'à toi de choisir'}
                   </Text>
                 </View>
                 {off ? (
                   <>
                     <Text style={styles.offNote}>
-                      {data.subscription.plan_name ? `Ta ${data.subscription.plan_name} ne comprend pas de viande demain.` : 'Pas de viande au menu demain.'}
+                      {data.subscription.plan_name ? `Ta ${data.subscription.plan_name} ne comprend pas de viande ${when}.` : `Pas de viande au menu ${when}.`}
                     </Text>
                     <View style={styles.upsell}>
                       <Ionicons color={colors.muted} name="lock-closed-outline" size={16} />
@@ -289,7 +300,7 @@ export default function ClientMenuScreen() {
             <AppButton
               label="Finalement, je mange"
               onPress={() => {
-                setResuming(true);
+                setResumingDate(data.date);
                 setPicks({});
                 setFeedback(null);
               }}
@@ -299,14 +310,14 @@ export default function ClientMenuScreen() {
         </View>
       ) : null}
 
-      {data.review_due ? <ReviewCard date={data.review_due.date} onSent={refresh} orderId={data.review_due.order_id} /> : null}
+      {isFirstDay && data.review_due ? <ReviewCard date={data.review_due.date} onSent={refresh} orderId={data.review_due.order_id} /> : null}
 
       <ConfirmModal
         cancelLabel="Garder mon repas"
-        confirmLabel="Oui, pas de repas demain"
+        confirmLabel={`Oui, pas de repas ${when}`}
         danger
         loading={cancel.isPending}
-        message="Tu ne seras pas livré demain. Tu peux changer d’avis plus tard dans la journée."
+        message={`Tu ne seras pas livré ${when}. Tu peux changer d’avis tant que les commandes sont ouvertes.`}
         onCancel={() => setConfirmCancel(false)}
         onConfirm={() => data.menu && cancel.mutate(data.menu.id)}
         title="Annuler ton repas ?"

@@ -2,15 +2,21 @@ import { describe, expect, it } from 'vitest';
 
 import type { TodayMenu } from '@/features/client-area/client.service';
 import {
+  dayBefore,
+  dayStatus,
+  daysToChoose,
   deriveMenuState,
   formatCountdown,
   formatHour,
+  headlineFor,
   isComplete,
+  isTomorrow,
   kinshasaClock,
   picksChanged,
   requiredCategories,
   secondsLeft,
-  timeToSeconds
+  timeToSeconds,
+  whenLabel
 } from '@/features/client-area/menu-state';
 
 function menu(overrides: Partial<TodayMenu> = {}): TodayMenu {
@@ -149,5 +155,41 @@ describe('compte à rebours', () => {
     expect(formatHour('13:00:00')).toBe('13h00');
     expect(formatHour('09:05')).toBe('9h05');
     expect(timeToSeconds('20:00')).toBe(72000);
+  });
+
+  describe('plusieurs jours à l’avance', () => {
+    const today = '2026-10-05';
+    it('reconnaît demain et nomme les autres jours', () => {
+      const demain = menu({ date: '2026-10-06', order_date: today });
+      const jeudi = menu({ date: '2026-10-08', order_date: today });
+      expect(dayBefore('2026-10-06')).toBe('2026-10-05');
+      expect(isTomorrow(demain)).toBe(true);
+      expect(isTomorrow(jeudi)).toBe(false);
+      expect(whenLabel(demain)).toBe('demain');
+      expect(whenLabel(jeudi)).toBe('le jeudi 8 octobre');
+    });
+
+    it('adapte les titres au jour affiché', () => {
+      const jeudi = menu({ date: '2026-10-08', order_date: today, menu_status: 'verrouille', order: order() });
+      expect(headlineFor('verrouille', menu({ date: '2026-10-06', order_date: today }))).toBe('C’est noté pour demain.');
+      expect(headlineFor('verrouille', jeudi)).toBe('C’est noté pour le jeudi 8 octobre.');
+      expect(headlineFor('normal', jeudi)).toBe('Fais-toi plaisir.');
+    });
+
+    it('résume l’état de chaque jour', () => {
+      expect(dayStatus(menu()).label).toBe('À choisir');
+      expect(dayStatus(menu({ order: order() }))).toEqual({ label: 'Choisi', tone: 'ok' });
+      expect(dayStatus(menu({ order: order({ is_default: true }) }))).toEqual({ label: 'Par défaut', tone: 'info' });
+      expect(dayStatus(menu({ menu_status: 'verrouille', order: order() })).label).toBe('Verrouillé');
+      expect(dayStatus(menu({ order: order({ status: 'cancelled' }) })).label).toBe('Annulé');
+      expect(dayStatus(menu({ menu_status: 'aucun_menu', menu: null })).label).toBe('Pas de menu');
+      expect(dayStatus(menu({ subscription: { state: 'expire', plan_name: 'Formule 2' } })).label).toBe('Terminé');
+    });
+
+    it('compte les jours qui attendent un choix', () => {
+      const week = [menu({ date: '2026-10-06' }), menu({ date: '2026-10-07', order: order() }), menu({ date: '2026-10-08' }),
+        menu({ date: '2026-10-09', subscription: { state: 'expire', plan_name: 'Formule 2' } })];
+      expect(daysToChoose(week)).toBe(2);
+    });
   });
 });

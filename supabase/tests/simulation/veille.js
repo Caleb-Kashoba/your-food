@@ -62,8 +62,11 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   }
   await sim.clock('2026-10-03', '15:00:00');
   const mon = await sim.one(`select id from public.daily_menus where menu_date = '2026-10-05'`);
+  // Limite réglée sur « demain seulement » (l'ancien comportement) : le lundi n'est pas encore ouvert le samedi
+  await sim.rpc(admin, 'set_order_ahead', ['1']);
   const early = await sim.rpc(a5[0].uid, 'submit_my_order', [mon.id, null, null, null]);
-  C('V3', 'samedi : commander le lundi est trop tôt (on commande la veille)', 'refusé', early.ok ? 'accepté' : early.msg, rejected(early, /repas de demain/), '2026-10-03');
+  C('V3', 'samedi, limite « demain seulement » : commander le lundi est trop tôt', 'refusé « pas encore ouvert »', early.ok ? 'accepté' : early.msg, rejected(early, /pas encore ouvert/), '2026-10-03');
+  await sim.rpc(admin, 'set_order_ahead', ['week']);
 
   // ── Dimanche 4 octobre : le lundi se commande le dimanche
   await sim.clock('2026-10-04', '10:00:00');
@@ -87,9 +90,9 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   const fv = await view(first);
   C('V6', 'abonnement qui commence lundi : le premier repas est attribué automatiquement (dimanche, pas de commande)', 'first_day_default', String(fv.first_day_default), fv.first_day_default === true, '2026-10-04');
   const fo = await order(first, fv, first.plan === 'F2');
-  C('V6b', 'et la commande lui est refusée avec un message clair', 'refusé « commence demain »', fo.ok ? 'accepté' : fo.msg, rejected(fo, /commence demain/), '2026-10-04');
+  C('V6b', 'et la commande lui est refusée avec un message clair', 'refusé « commence demain »', fo.ok ? 'accepté' : fo.msg, rejected(fo, /premier repas/), '2026-10-04');
   const fc = await sim.rpc(first.uid, 'cancel_my_order', [fv.menu.id]);
-  C('V6c', 'l\'annulation aussi', 'refusée', fc.ok ? 'acceptée' : fc.msg, rejected(fc, /commence demain/), '2026-10-04');
+  C('V6c', 'l\'annulation aussi', 'refusée', fc.ok ? 'acceptée' : fc.msg, rejected(fc, /premier repas/), '2026-10-04');
 
   // ── Limite : dimanche 19:59:59 / 20:00:00
   await sim.clock('2026-10-04', '19:59:59');
@@ -104,7 +107,7 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   C('V8b', 'dimanche 23:59:59 : dernière seconde de la veille, acceptée', 'acceptée', lastSecond.ok ? 'acceptée' : lastSecond.msg, lastSecond.ok, '2026-10-04');
   await sim.clock('2026-10-05', '00:00:00');
   const nextDay = await order(a5[2], sun, a5[2].plan === 'F2');
-  C('V8c', 'lundi 00:00:00 : le repas de lundi n\'est plus à commander (on commande la veille)', 'refusée', nextDay.ok ? 'acceptée' : nextDay.msg, rejected(nextDay, /repas de demain/), '2026-10-05');
+  C('V8c', 'lundi 00:00:00 : le repas de lundi n\'est plus à commander (on commande la veille)', 'refusée', nextDay.ok ? 'acceptée' : nextDay.msg, rejected(nextDay, /plus ouvert/), '2026-10-05');
 
   // ── Verrouillage planifié (20:00:30) : repas par défaut, journal « système »
   await sim.clock('2026-10-05', '00:00:30');

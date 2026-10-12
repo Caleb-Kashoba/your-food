@@ -38,6 +38,7 @@ Variables : `SIM_HOST`, `SIM_PORT` (55432), `SIM_USER`, `SIM_PASSWORD`, `SIM_DB`
 | `veille.js` | Calendrier « la veille », repas par défaut, saisie par l'équipe (`SIM_DB=fusion_sim node veille.js`) |
 | `audit-planning.js` | Cas limites de la planification (suspension après création des défauts, saisie le jour du repas, menu oublié, abonnement saisi tard) : un cas en échec est une faille |
 | `customer-status.js` | Statut des clients (21 cas) : actif / inactif 2 jours ouvrés après la fin / ancien client sur approbation, refus = +2 semaines, réactivation, droits (`SIM_DB=fusion_sim node customer-status.js`, sur une base vierge) |
+| `order-ahead.js` | Commander à l'avance (21 cas) : fenêtre « jusqu'au vendredi », limite réglable (N jours) ou désactivée, premier jour, fin d'abonnement, heure limite, verrouillage, modification d'un menu déjà répondu (`SIM_DB=fusion_sim node order-ahead.js`, sur une base vierge) |
 | `mutations/`, `run-mutations.sh` | Pannes injectées |
 
 ## Limites

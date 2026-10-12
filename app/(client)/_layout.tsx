@@ -2,18 +2,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { Tabs } from 'expo-router';
 
-import { getHistory, getTodayMenu } from '@/features/client-area/client.service';
+import { getHistory, getWeekMenu } from '@/features/client-area/client.service';
+import { daysToChoose } from '@/features/client-area/menu-state';
 import { colors } from '@/theme/colors';
 
 /** Espace du client connecté : Menu, Historique, Compte (pastilles : choix à faire, avis à donner) */
 export default function ClientTabsLayout() {
-  const menu = useQuery({ queryKey: ['client', 'menu'], queryFn: getTodayMenu, refetchInterval: 60_000 });
+  const menu = useQuery({ queryKey: ['client', 'menu'], queryFn: getWeekMenu, refetchInterval: 60_000 });
   const history = useQuery({ queryKey: ['client', 'history', 'all'], queryFn: () => getHistory() });
 
-  const choicePending = Boolean(
-    menu.data?.menu && ['normal', 'en_retard'].includes(menu.data.menu_status) && !menu.data.order &&
-      ['actif', 'bientot_expire'].includes(menu.data.subscription.state)
-  );
+  const choicePending = menu.data ? daysToChoose(menu.data) : 0;
   const reviewsPending = history.data?.filter((entry) => entry.review_possible).length ?? 0;
 
   return (
@@ -33,7 +31,7 @@ export default function ClientTabsLayout() {
         name="menu"
         options={{
           title: 'Menu',
-          ...(choicePending ? { tabBarBadge: 1 } : {}),
+          ...(choicePending > 0 ? { tabBarBadge: choicePending } : {}),
           tabBarIcon: ({ color, size }) => <Ionicons color={color} name="restaurant-outline" size={size} />
         }}
       />

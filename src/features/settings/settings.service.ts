@@ -1,3 +1,4 @@
+import { parseOrderAhead, serializeOrderAhead, type OrderAhead } from '@/features/settings/order-ahead';
 import { requireSupabase } from '@/lib/supabase/client';
 
 export interface AlertRule {
@@ -71,4 +72,17 @@ export async function setDefaultMinVotes(value: number): Promise<number> {
   const { data, error } = await requireSupabase().rpc('set_default_min_votes', { p_value: value });
   if (error) throw error;
   return Number(data);
+}
+
+/** Jusqu'où les clients peuvent choisir leurs repas à l'avance (voir order-ahead.ts) */
+export async function getOrderAhead(): Promise<OrderAhead> {
+  const { data, error } = await requireSupabase().rpc('get_order_ahead');
+  if (error) throw error;
+  return parseOrderAhead(String(data));
+}
+
+export async function setOrderAhead(value: OrderAhead): Promise<OrderAhead> {
+  const { data, error } = await requireSupabase().rpc('set_order_ahead', { p_value: serializeOrderAhead(value) });
+  if (error) throw error;
+  return parseOrderAhead(String(data));
 }

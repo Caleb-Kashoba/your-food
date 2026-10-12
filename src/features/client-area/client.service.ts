@@ -46,14 +46,14 @@ export interface TodayMeal {
 }
 
 export interface TodayMenu {
-  /** Jour du repas proposé : demain (on commande la veille, jusqu'à minuit tant qu'aucune limite n'est réglée) */
+  /** Jour du repas proposé : demain ou un des jours suivants (chaque jour se commande jusqu'à son verrouillage : minuit la veille tant qu'aucune heure limite n'est réglée) */
   date: string;
   /** Jour où l'on commande (aujourd'hui) */
   order_date?: string;
   menu_status: MenuStatus;
   subscription: SubscriptionContext;
   meat_allowed_today: boolean;
-  /** L'abonnement commence demain : le premier repas est attribué automatiquement */
+  /** L'abonnement commence ce jour-là (nouveau client) : le premier repas est attribué automatiquement */
   first_day_default?: boolean;
   /** Dernier jour d'abonnement : demain l'abonnement est terminé, mais il court encore aujourd'hui (pas « expiré ») */
   last_day?: boolean;
@@ -89,11 +89,14 @@ export interface Account {
   payments: { amount: number; currency: string; paid_at: string; method: string; status: string }[];
 }
 
-export async function getTodayMenu(): Promise<TodayMenu> {
-  const { data, error } = await requireSupabase().rpc('my_today_menu');
+/**
+ * Les jours que le client peut commander : les menus publiés de demain jusqu'à la limite réglée par l'administratrice
+ * (par défaut le vendredi de la semaine). Toujours au moins un élément (demain, même sans menu).
+ */
+export async function getWeekMenu(): Promise<TodayMenu[]> {
+  const { data, error } = await requireSupabase().rpc('my_week_menu');
   if (error) throw error;
-  const menu = data as Omit<TodayMenu, 'device_offset_ms'>;
-  return { ...menu, device_offset_ms: Date.parse(menu.server_now) - Date.now() };
+  return (data as Omit<TodayMenu, 'device_offset_ms'>[]).map((menu) => ({ ...menu, device_offset_ms: Date.parse(menu.server_now) - Date.now() }));
 }
 
 export async function submitOrder(params: {

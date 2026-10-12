@@ -3,6 +3,7 @@
  */
 
 import type { TodayMenu } from '@/features/client-area/client.service';
+import { formatDayMonth } from '@/lib/dates';
 
 export type ClientMenuState =
   | 'aucun_menu'
@@ -55,6 +56,62 @@ export const HEADLINES: Record<ClientMenuState, string> = {
 /** Le client peut-il encore choisir ou modifier son repas ? */
 export function isEditable(state: ClientMenuState): boolean {
   return state === 'normal' || state === 'en_retard';
+}
+
+/** Jour avant une date « AAAA-MM-JJ » */
+export function dayBefore(date: string): string {
+  return new Date(Date.parse(`${date}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Le jour affiché est-il demain ? (sinon on le nomme : « le mercredi 14 octobre ») */
+export function isTomorrow(menu: TodayMenu): boolean {
+  return dayBefore(menu.date) === (menu.order_date ?? dayBefore(menu.date));
+}
+
+/** « demain » ou « le mercredi 14 octobre » */
+export function whenLabel(menu: TodayMenu): string {
+  return isTomorrow(menu) ? 'demain' : `le ${formatDayMonth(menu.date)}`;
+}
+
+/** Titre de l'écran : les phrases parlent de « demain » seulement pour demain */
+export function headlineFor(state: ClientMenuState, menu: TodayMenu): string {
+  const text = HEADLINES[state];
+  return isTomorrow(menu) ? text : text.replace('demain', whenLabel(menu));
+}
+
+export type DayTone = 'ok' | 'todo' | 'info' | 'muted';
+
+/** État résumé d'un jour, pour la rangée des jours (une pastille et un mot) */
+export function dayStatus(menu: TodayMenu): { label: string; tone: DayTone } {
+  const state = deriveMenuState(menu);
+  switch (state) {
+    case 'normal':
+    case 'en_retard':
+      if (menu.order?.status === 'confirmed') return menu.order.is_default ? { label: 'Par défaut', tone: 'info' } : { label: 'Choisi', tone: 'ok' };
+      return { label: 'À choisir', tone: 'todo' };
+    case 'defaut':
+      return { label: 'Par défaut', tone: 'info' };
+    case 'verrouille':
+      return { label: 'Verrouillé', tone: 'ok' };
+    case 'annule':
+      return { label: 'Annulé', tone: 'muted' };
+    case 'aucun_menu':
+      return { label: 'Pas de menu', tone: 'muted' };
+    case 'premier_jour':
+      return { label: 'Attribué', tone: 'info' };
+    case 'dernier_jour':
+    case 'expire':
+      return { label: 'Terminé', tone: 'muted' };
+    case 'non_commence':
+      return { label: 'Pas commencé', tone: 'muted' };
+    case 'inactif':
+      return { label: 'En pause', tone: 'muted' };
+  }
+}
+
+/** Jours qui attendent encore un choix du client (pastille de l'onglet Menu) */
+export function daysToChoose(week: TodayMenu[]): number {
+  return week.filter((menu) => dayStatus(menu).label === 'À choisir' && ['actif', 'bientot_expire'].includes(menu.subscription.state)).length;
 }
 
 /** « 13:00:00 » ou « 13:00 » → secondes depuis minuit */

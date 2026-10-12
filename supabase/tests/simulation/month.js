@@ -811,9 +811,9 @@ const LOCK = 20 * 3600;
     const opts = await sim.q("select o.id, ci.category from public.menu_options o join public.catalog_items ci on ci.id = o.catalog_item_id where o.daily_menu_id = $1", [menu8.id]);
     const of = (cat) => opts.find((x) => x.category === cat).id;
     const res = await sim.rpc(c.uid, 'submit_my_order', [menu8.id, of('plat'), of('accompagnement'), null]);
-    C('B2', 'veille', 'à minuit, commander le repas du jour (qui se prépare) est refusé : on commande la veille', 'refusée', res.ok ? 'acceptée' : res.msg, expectRejected(res, /repas de demain|verrouillé/));
+    C('B2', 'veille', 'à minuit, commander le repas du jour (qui se prépare) est refusé : on commande la veille', 'refusée', res.ok ? 'acceptée' : res.msg, expectRejected(res, /plus ouvert|verrouillé/));
     const can = await sim.rpc(c.uid, 'cancel_my_order', [menu8.id]);
-    C('B2b', 'veille', 'à minuit, annuler le repas du jour est refusé', 'refusée', can.ok ? 'acceptée' : can.msg, expectRejected(can, /repas de demain|verrouillé/));
+    C('B2b', 'veille', 'à minuit, annuler le repas du jour est refusé', 'refusée', can.ok ? 'acceptée' : can.msg, expectRejected(can, /plus ouvert|verrouillé/));
     const pub = await sim.rpc(admin, 'publish_menu', ['2026-10-08', itemIds(pickSet()), '13:00']);
     C('B3', 'veille', 'republier le menu du jour est refusé', 'refusé', pub.ok ? 'accepté' : pub.msg, !pub.ok);
   });
@@ -964,7 +964,7 @@ const LOCK = 20 * 3600;
     if (!mm) { C('O14', 'commandes', 'client expiré : commande refusée (aucun menu ce jour)', 'refusé', 'pas de menu', true); return; }
     const o = mm.options;
     const res = await sim.rpc(x.uid, 'submit_my_order', [mm.id, o.find((y) => y.category === 'plat').option_id, o.find((y) => y.category === 'accompagnement').option_id, null]);
-    C('O14', 'commandes', 'client dont l\'abonnement a expiré : commande refusée', 'refusé (expiré)', res.ok ? 'accepté' : res.msg, expectRejected(res, /expiré/));
+    C('O14', 'commandes', 'client dont l\'abonnement a expiré : commande refusée', 'refusé (expiré)', res.ok ? 'accepté' : res.msg, expectRejected(res, /expiré|terminé/));
   });
   at('2026-10-13', '08:00:00', 'état : non commencé', async () => {
     const x = clients.find((c) => c.group === 'D' && c.uid);

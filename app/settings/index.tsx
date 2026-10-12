@@ -4,13 +4,17 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
+import { Chips } from '@/components/ui/Chips';
 import { Screen } from '@/components/ui/Screen';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
+import { describeOrderAhead, parseDays, type OrderAhead } from '@/features/settings/order-ahead';
 import {
   getDefaultMinVotes,
+  getOrderAhead,
   listAlertRules,
   listMessageTemplates,
   setDefaultMinVotes,
+  setOrderAhead,
   updateAlertRule,
   updateMessageTemplate,
   type AlertRule,
@@ -42,6 +46,7 @@ export default function SettingsScreen() {
         />
       ))}
       <MinVotesEditor />
+      <OrderAheadEditor />
       <View style={styles.header}>
         <Text style={styles.title}>Modèles WhatsApp</Text>
         <Text style={styles.description}>Variables disponibles : {'{customer_name}'} et {'{expiration_date}'}. Le message reste modifiable avant l’ouverture de WhatsApp.</Text>
@@ -100,6 +105,73 @@ function MinVotesEditor() {
       </View>
       <View style={styles.rule}>
         <AppInput keyboardType="number-pad" label="Choix minimum" onChangeText={(text) => { setValue(text); setSaved(false); }} value={shown} />
+        <AppButton label={saved ? 'Enregistré' : 'Enregistrer'} loading={saving} onPress={() => void save()} variant="secondary" />
+      </View>
+    </>
+  );
+}
+
+type AheadMode = OrderAhead['mode'];
+const AHEAD_OPTIONS: { value: AheadMode; label: string }[] = [
+  { value: 'week', label: 'Fin de la semaine' },
+  { value: 'days', label: 'Nombre de jours' },
+  { value: 'none', label: 'Sans limite' }
+];
+
+/** Jusqu'où les clients peuvent choisir leurs repas à l'avance : fin de la semaine (par défaut), N jours, ou sans limite */
+function OrderAheadEditor() {
+  const queryClient = useQueryClient();
+  const current = useQuery({ queryKey: ['order-ahead'], queryFn: getOrderAhead });
+  const [mode, setMode] = useState<AheadMode | null>(null);
+  const [daysText, setDaysText] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (current.isLoading) return null;
+  if (current.error) return <Text style={styles.description}>{getErrorMessage(current.error)}</Text>;
+  const savedValue: OrderAhead = current.data ?? { mode: 'week' };
+  const shownMode = mode ?? savedValue.mode;
+  const shownDays = daysText ?? String(savedValue.mode === 'days' ? savedValue.days : 7);
+  const preview: OrderAhead = shownMode === 'days' ? { mode: 'days', days: parseDays(shownDays) ?? 1 } : shownMode === 'none' ? { mode: 'none' } : { mode: 'week' };
+  const save = async () => {
+    setError(null);
+    let value: OrderAhead = { mode: shownMode === 'none' ? 'none' : 'week' };
+    if (shownMode === 'days') {
+      const days = parseDays(shownDays);
+      if (days === null) {
+        setError('Saisissez un nombre entier de jours entre 1 et 60.');
+        return;
+      }
+      value = { mode: 'days', days };
+    }
+    try {
+      setSaving(true);
+      await setOrderAhead(value);
+      await queryClient.invalidateQueries({ queryKey: ['order-ahead'] });
+      setMode(null);
+      setDaysText(null);
+      setSaved(true);
+    } catch (failure) {
+      setError(getErrorMessage(failure));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <>
+      <View style={styles.header}>
+        <Text style={styles.title}>Choisir à l’avance</Text>
+        <Text style={styles.description}>
+          Jusqu’où les clients peuvent choisir leurs repas. Chaque jour reste modifiable jusqu’à son verrouillage. Les clients ne voient que les menus déjà publiés.
+        </Text>
+      </View>
+      <View style={styles.rule}>
+        <Chips label="Limite" onChange={(value) => { setMode(value); setSaved(false); setError(null); }} options={AHEAD_OPTIONS} value={shownMode} />
+        {shownMode === 'days' ? (
+          <AppInput keyboardType="number-pad" label="Jours à l’avance (1 = demain seulement)" onChangeText={(text) => { setDaysText(text); setSaved(false); }} value={shownDays} />
+        ) : null}
+        <Text style={styles.description}>{describeOrderAhead(preview)}</Text>
+        {error ? <Text accessibilityRole="alert" style={styles.errorText}>{error}</Text> : null}
         <AppButton label={saved ? 'Enregistré' : 'Enregistrer'} loading={saving} onPress={() => void save()} variant="secondary" />
       </View>
     </>
@@ -169,5 +241,6 @@ const styles = StyleSheet.create({
   rule: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, gap: spacing.md },
   ruleName: { color: colors.text, fontSize: 16, fontWeight: '800' },
   note: { backgroundColor: colors.warningSoft, borderRadius: radii.lg, padding: spacing.md, gap: spacing.sm },
-  noteTitle: { color: colors.warning, fontSize: 16, fontWeight: '800' }
+  noteTitle: { color: colors.warning, fontSize: 16, fontWeight: '800' },
+  errorText: { color: colors.danger, fontSize: 13, fontWeight: '700' }
 });
