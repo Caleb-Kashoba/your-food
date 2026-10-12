@@ -242,9 +242,11 @@ export default function ClientMenuScreen() {
               <View key={category} style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>{CATEGORY_TITLE[category]}</Text>
-                  <Text style={styles.sectionTag}>
-                    {off ? (isTomorrow(data) ? 'pas demain' : 'pas ce jour') : !editable ? (state === 'defaut' ? 'choisi pour toi' : 'noté') : picks[category] ? 'choisi' : 'à toi de choisir'}
-                  </Text>
+                  {off ? null : (
+                    <Text style={styles.sectionTag}>
+                      {!editable ? (state === 'defaut' ? 'choisi pour toi' : 'noté') : picks[category] ? 'choisi' : 'à toi de choisir'}
+                    </Text>
+                  )}
                 </View>
                 {off ? (
                   <>
