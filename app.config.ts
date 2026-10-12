@@ -40,6 +40,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   web: {
     bundler: 'metro',
+    lang: 'fr',
     favicon: './assets/images/favicon-your-food.png'
   },
   plugins: [
