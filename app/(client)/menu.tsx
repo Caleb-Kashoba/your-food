@@ -45,7 +45,6 @@ const CATEGORY_TITLE: Record<MealCategory, string> = { plat: 'Plat', accompagnem
 
 const NOTICES: Partial<Record<ClientMenuState, { title: string; text: string; tone: 'info' | 'success' | 'danger' | 'warning' }>> = {
   en_retard: { title: 'En retard', text: 'Tu peux encore choisir.', tone: 'warning' },
-  verrouille: { title: 'Menu verrouillé', text: 'Ta commande est prise en compte.', tone: 'success' },
   defaut: { title: 'Attribué automatiquement', text: 'Aucun choix reçu : on t’a servi les plats les plus demandés.', tone: 'info' },
   annule: { title: 'Commande annulée', text: 'Ton repas est exclu de la préparation.', tone: 'danger' },
   inactif: { title: 'Abonnement en pause', text: 'Contacte l’administratrice pour reprendre tes repas.', tone: 'warning' },
@@ -230,7 +229,7 @@ export default function ClientMenuScreen() {
         />
       ) : null}
       {editable && data.order?.is_default ? (
-        <Banner text="On t’a déjà réservé le repas le plus choisi par les autres. Garde-le en le confirmant, ou change-le quand tu veux." title="Choisi pour toi" tone="info" />
+        <Hint text="Repas réservé pour toi : le plus choisi par les autres. Confirme-le ou change-le quand tu veux." />
       ) : null}
       {notice ? <Banner text={notice.text} title={notice.title} tone={notice.tone} /> : null}
 
@@ -250,7 +249,7 @@ export default function ClientMenuScreen() {
                 {off ? (
                   <>
                     <Text style={styles.offNote}>
-                      {data.subscription.plan_name ? `Ta ${data.subscription.plan_name} ne comprend pas de viande ${when}.` : `Pas de viande au menu ${when}.`}
+                      {data.subscription.plan_name ? `Pas de viande dans ta ${data.subscription.plan_name} ${isTomorrow(data) ? 'demain' : 'ce jour-là'}.` : `Pas de viande au menu ${isTomorrow(data) ? 'demain' : 'ce jour-là'}.`}
                     </Text>
                     <View style={styles.upsell}>
                       <Ionicons color={colors.muted} name="lock-closed-outline" size={16} />
@@ -280,7 +279,10 @@ export default function ClientMenuScreen() {
         <View style={styles.actions}>
           {editable ? (
             unchanged ? (
-              <AppButton disabled label="Repas confirmé" variant="secondary" />
+              <View style={styles.confirmed}>
+                <Ionicons color={colors.success} name="checkmark-circle" size={22} />
+                <Text style={styles.confirmedText}>Repas confirmé</Text>
+              </View>
             ) : (
               <>
                 {!complete ? <Text style={styles.missing}>Il te reste à choisir : {listCategories(missing)}</Text> : null}
@@ -293,9 +295,9 @@ export default function ClientMenuScreen() {
               </>
             )
           ) : (
-            <AppButton disabled label={state === 'annule' ? 'Repas annulé' : 'Bon appétit'} variant="secondary" />
+            <Text style={styles.statusLine}>{state === 'annule' ? 'Repas annulé' : 'Bon appétit !'}</Text>
           )}
-          {editable ? <AppButton label="Annuler mon repas" onPress={() => setConfirmCancel(true)} variant="ghost" /> : null}
+          {editable ? <AppButton label="Je ne mange pas ce jour-là" onPress={() => setConfirmCancel(true)} variant="dangerGhost" /> : null}
           {state === 'annule' && data.menu_status !== 'verrouille' ? (
             <AppButton
               label="Finalement, je mange"
@@ -362,6 +364,16 @@ function OptionRow({ option, selected, disabled, onPress }: { option: MenuOption
   );
 }
 
+/** Une ligne d'information discrète (pas un bloc) */
+function Hint({ text }: { text: string }) {
+  return (
+    <View style={styles.hint}>
+      <Ionicons color={colors.muted} name="sparkles-outline" size={16} />
+      <Text style={styles.hintText}>{text}</Text>
+    </View>
+  );
+}
+
 function Banner({ title, text, tone }: { title: string; text: string; tone: 'info' | 'success' | 'danger' | 'warning' }) {
   const palette = {
     info: { bg: colors.infoSoft, fg: colors.info },
@@ -421,13 +433,13 @@ const styles = StyleSheet.create({
   planText: { color: colors.primaryDark, fontSize: 13, fontWeight: '800' },
   heading: { gap: spacing.xs },
   date: { color: colors.muted, fontSize: 16, fontWeight: '700' },
-  headline: { color: colors.primaryDark, fontSize: 36, fontWeight: '900', letterSpacing: -1, lineHeight: 40 },
+  headline: { color: colors.primaryDark, fontSize: 32, fontWeight: '900', letterSpacing: -0.8, lineHeight: 36 },
   countdown: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   grow: { flex: 1 },
   timer: { color: colors.primary, fontSize: 28, fontWeight: '900', fontVariant: ['tabular-nums'] },
   timerLate: { color: colors.danger },
   timerLabel: { color: colors.muted, fontSize: 13, fontWeight: '600' },
-  section: { gap: spacing.sm },
+  section: { gap: spacing.sm, marginTop: spacing.xs },
   sectionHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
   sectionTitle: { color: colors.primaryDark, fontSize: 18, fontWeight: '900' },
   sectionTag: { color: colors.accent, fontSize: 13, fontWeight: '700' },
@@ -439,21 +451,26 @@ const styles = StyleSheet.create({
   upsell: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, opacity: 0.8 },
   upsellText: { color: colors.muted, fontSize: 13, fontStyle: 'italic' },
   offNote: { color: colors.muted, fontSize: 14, lineHeight: 21 },
-  option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, minHeight: 60, backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  optionSelected: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
+  option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, minHeight: 56, backgroundColor: colors.surfaceStrong, borderColor: colors.border, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  optionSelected: { backgroundColor: colors.primarySoft, borderColor: colors.primary, borderWidth: 2 },
   optionDim: { opacity: 0.7 },
   optionText: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '600' },
   optionTextSelected: { color: colors.primaryDark, fontWeight: '800' },
   radio: { alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 12, borderColor: colors.border, borderWidth: 1.5 },
   radioSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
-  banner: { borderRadius: radii.lg, gap: 2, padding: spacing.md },
+  banner: { borderRadius: radii.md, gap: 2, padding: spacing.md },
+  hint: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  hintText: { flex: 1, color: colors.muted, fontSize: 13, lineHeight: 18 },
+  confirmed: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, minHeight: 52, backgroundColor: colors.successSoft, borderRadius: radii.round },
+  confirmedText: { color: colors.success, fontSize: 16, fontWeight: '800' },
+  statusLine: { color: colors.muted, fontSize: 15, fontWeight: '800', textAlign: 'center', paddingVertical: spacing.sm },
   bannerTitle: { fontSize: 15, fontWeight: '900' },
   bannerText: { color: colors.text, fontSize: 14, lineHeight: 20 },
   stale: { color: colors.muted, fontSize: 13 },
   missing: { color: colors.warning, fontSize: 14, fontWeight: '700', textAlign: 'center' },
   feedback: { color: colors.success, fontSize: 15, fontWeight: '800' },
   error: { color: colors.danger, fontSize: 14, fontWeight: '600' },
-  actions: { gap: spacing.sm, marginTop: spacing.xs },
+  actions: { gap: spacing.xs, marginTop: spacing.sm },
   review: { gap: spacing.md, marginBottom: spacing.xl },
   reviewText: { color: colors.muted, fontSize: 14, lineHeight: 21 },
   comment: { minHeight: 50, borderColor: colors.border, borderWidth: 1, borderRadius: radii.md, color: colors.text, fontSize: 15, paddingHorizontal: spacing.md, backgroundColor: colors.surface }

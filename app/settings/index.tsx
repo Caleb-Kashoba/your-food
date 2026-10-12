@@ -166,7 +166,7 @@ function OrderAheadEditor() {
         </Text>
       </View>
       <View style={styles.rule}>
-        <Chips label="Limite" onChange={(value) => { setMode(value); setSaved(false); setError(null); }} options={AHEAD_OPTIONS} value={shownMode} />
+        <Chips label="Limite" wrap onChange={(value) => { setMode(value); setSaved(false); setError(null); }} options={AHEAD_OPTIONS} value={shownMode} />
         {shownMode === 'days' ? (
           <AppInput keyboardType="number-pad" label="Jours à l’avance (1 = demain seulement)" onChangeText={(text) => { setDaysText(text); setSaved(false); }} value={shownDays} />
         ) : null}

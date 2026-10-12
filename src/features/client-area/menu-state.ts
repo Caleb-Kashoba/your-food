@@ -87,10 +87,10 @@ export function dayStatus(menu: TodayMenu): { label: string; tone: DayTone } {
   switch (state) {
     case 'normal':
     case 'en_retard':
-      if (menu.order?.status === 'confirmed') return menu.order.is_default ? { label: 'Par défaut', tone: 'info' } : { label: 'Choisi', tone: 'ok' };
+      if (menu.order?.status === 'confirmed') return menu.order.is_default ? { label: 'Réservé', tone: 'info' } : { label: 'Choisi', tone: 'ok' };
       return { label: 'À choisir', tone: 'todo' };
     case 'defaut':
-      return { label: 'Par défaut', tone: 'info' };
+      return { label: 'Réservé', tone: 'info' };
     case 'verrouille':
       return { label: 'Verrouillé', tone: 'ok' };
     case 'annule':

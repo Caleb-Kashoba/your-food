@@ -179,7 +179,7 @@ describe('compte à rebours', () => {
     it('résume l’état de chaque jour', () => {
       expect(dayStatus(menu()).label).toBe('À choisir');
       expect(dayStatus(menu({ order: order() }))).toEqual({ label: 'Choisi', tone: 'ok' });
-      expect(dayStatus(menu({ order: order({ is_default: true }) }))).toEqual({ label: 'Par défaut', tone: 'info' });
+      expect(dayStatus(menu({ order: order({ is_default: true }) }))).toEqual({ label: 'Réservé', tone: 'info' });
       expect(dayStatus(menu({ menu_status: 'verrouille', order: order() })).label).toBe('Verrouillé');
       expect(dayStatus(menu({ order: order({ status: 'cancelled' }) })).label).toBe('Annulé');
       expect(dayStatus(menu({ menu_status: 'aucun_menu', menu: null })).label).toBe('Pas de menu');

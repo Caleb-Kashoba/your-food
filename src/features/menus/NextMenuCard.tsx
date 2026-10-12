@@ -45,7 +45,7 @@ export function NextMenuCard() {
         </View>
       </View>
       <View style={styles.actions}>
-        <AppButton label="Voir les commandes" onPress={() => router.push({ pathname: '/orders/live', params: { date } })} style={styles.grow} variant="secondary" />
+        <AppButton label="Commandes" onPress={() => router.push({ pathname: '/orders/live', params: { date } })} style={styles.grow} variant="secondary" />
         {day.status === 'open' ? (
           <AppButton label="Modifier" onPress={() => router.push({ pathname: '/menus/publish', params: { date } })} style={styles.grow} variant="ghost" />
         ) : null}

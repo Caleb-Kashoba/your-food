@@ -1,4 +1,6 @@
-import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { format, parseISO } from 'date-fns';
+import { fr } from 'date-fns/locale';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { TodayMenu } from '@/features/client-area/client.service';
 import { dayStatus, type DayTone } from '@/features/client-area/menu-state';
@@ -18,13 +20,17 @@ const TONE_COLOR: Record<DayTone, string> = {
   muted: colors.muted
 };
 
-/** Rangée des jours que le client peut commander : le jour, et son état d'un coup d'œil (à choisir, choisi, verrouillé…) */
+/**
+ * Rangée des jours que le client peut commander. Même langage que les filtres : le jour choisi est plein (orange),
+ * les autres sont blancs ; sous le numéro, un point de couleur et un mot disent où on en est (à choisir, choisi, verrouillé…).
+ */
 export function DayStrip({ days, selected, onSelect }: DayStripProps) {
   return (
-    <ScrollView accessibilityLabel="Jours à commander" contentContainerStyle={styles.row} horizontal showsHorizontalScrollIndicator={false}>
+    <ScrollView accessibilityLabel="Jours à commander" contentContainerStyle={styles.row} horizontal showsHorizontalScrollIndicator={false} style={styles.scroll}>
       {days.map((day) => {
         const active = day.date === selected;
         const status = dayStatus(day);
+        const date = parseISO(day.date);
         return (
           <Pressable
             accessibilityLabel={`${formatDayChip(day.date)} : ${status.label}`}
@@ -34,8 +40,12 @@ export function DayStrip({ days, selected, onSelect }: DayStripProps) {
             onPress={() => onSelect(day.date)}
             style={[styles.day, active && styles.dayActive]}
           >
-            <Text style={[styles.date, active && styles.dateActive]}>{formatDayChip(day.date)}</Text>
-            <Text style={[styles.status, { color: TONE_COLOR[status.tone] }]}>{status.label}</Text>
+            <Text style={[styles.weekday, active && styles.onActive]}>{format(date, 'EEE', { locale: fr })}</Text>
+            <Text style={[styles.number, active && styles.onActive]}>{format(date, 'd')}</Text>
+            <View style={styles.statusRow}>
+              <View style={[styles.dot, { backgroundColor: active ? colors.white : TONE_COLOR[status.tone] }]} />
+              <Text style={[styles.status, active ? styles.onActive : { color: TONE_COLOR[status.tone] }]}>{status.label}</Text>
+            </View>
           </Pressable>
         );
       })}
@@ -44,22 +54,26 @@ export function DayStrip({ days, selected, onSelect }: DayStripProps) {
 }
 
 const styles = StyleSheet.create({
-  row: { gap: spacing.sm, paddingVertical: spacing.xs },
+  scroll: { flexGrow: 0, flexShrink: 0 },
+  row: { flexGrow: 1, gap: spacing.sm, paddingVertical: 2 },
   day: {
-    minWidth: 92,
-    minHeight: 56,
+    flex: 1,
+    minWidth: 68,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-    backgroundColor: colors.surface,
+    gap: 1,
+    backgroundColor: colors.surfaceStrong,
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: radii.md,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm
   },
-  dayActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary, borderWidth: 2 },
-  date: { color: colors.text, fontSize: 14, fontWeight: '800' },
-  dateActive: { color: colors.primaryDark },
-  status: { fontSize: 12, fontWeight: '800' }
+  dayActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  weekday: { color: colors.muted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
+  number: { color: colors.primaryDark, fontSize: 22, fontWeight: '900', lineHeight: 26 },
+  onActive: { color: colors.white },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  dot: { width: 7, height: 7, borderRadius: 4 },
+  status: { fontSize: 11, fontWeight: '800' }
 });
