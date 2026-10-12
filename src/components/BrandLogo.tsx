@@ -8,33 +8,24 @@ interface BrandLogoProps {
   style?: ViewStyle;
 }
 
-const brandMark = require('../../assets/images/brand-mark.png');
+// Logo complet (symbole + « YOUR FOOD »), fond transparent
+const brandLogo = require('../../assets/images/brand-logo.png');
+const LOGO_RATIO = 859 / 304;
 
 export function BrandLogo({ compact = false, showTagline = false, style }: BrandLogoProps) {
-  const markSize = compact ? 46 : 82;
+  const height = compact ? 50 : 110;
 
   return (
     <View style={[styles.container, compact ? styles.compact : styles.hero, style]}>
-      <Image resizeMode="contain" source={brandMark} style={{ height: markSize, width: markSize }} />
-      <View style={styles.copy}>
-        <Text accessibilityLabel="Your Food" style={[styles.wordmark, compact && styles.wordmarkCompact]}>
-          <Text style={styles.your}>YOUR </Text>
-          <Text style={styles.food}>FOOD</Text>
-        </Text>
-        {showTagline ? <Text style={styles.tagline}>Bien manger, c’est aussi réussir.</Text> : null}
-      </View>
+      <Image accessibilityLabel="Your Food" resizeMode="contain" source={brandLogo} style={{ height, width: Math.round(height * LOGO_RATIO) }} />
+      {showTagline ? <Text style={styles.tagline}>Bien manger, c’est aussi réussir.</Text> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { alignItems: 'center' },
-  hero: { gap: spacing.sm },
-  compact: { flexDirection: 'row', gap: spacing.sm },
-  copy: { alignItems: 'flex-start' },
-  wordmark: { fontSize: 32, fontWeight: '900', letterSpacing: -1.4, lineHeight: 36 },
-  wordmarkCompact: { fontSize: 19, letterSpacing: -0.7, lineHeight: 23 },
-  your: { color: colors.primaryDark },
-  food: { color: colors.primary },
-  tagline: { color: colors.accent, fontSize: 13, fontWeight: '700', marginTop: 2 }
+  container: { gap: spacing.xs },
+  hero: { alignItems: 'center' },
+  compact: { alignItems: 'flex-start' },
+  tagline: { color: colors.accent, fontSize: 13, fontWeight: '700' }
 });
