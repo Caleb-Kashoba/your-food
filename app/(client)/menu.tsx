@@ -37,7 +37,7 @@ import {
   type ClientMenuState,
   type Picks
 } from '@/features/client-area/menu-state';
-import { formatDayMonth, formatLocalDate, nextWorkingDay } from '@/lib/dates';
+import { formatDayChip, formatDayMonth, formatLocalDate, nextWorkingDay } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { colors, radii, spacing } from '@/theme/colors';
 
@@ -126,7 +126,7 @@ export default function ClientMenuScreen() {
       setConfirmCancel(false);
       setResumingDate(null);
       setError(null);
-      setFeedback(`Repas annulé pour ${data ? whenLabel(data) : 'ce jour'}.`);
+      setFeedback(`Commande annulée pour ${data ? whenLabel(data) : 'ce jour'}.`);
       await refresh();
     },
     onError: (caught) => {
@@ -229,7 +229,7 @@ export default function ClientMenuScreen() {
         />
       ) : null}
       {editable && data.order?.is_default ? (
-        <Hint text="Repas réservé pour toi : le plus choisi par les autres. Confirme-le ou change-le quand tu veux." />
+        <Hint text="Si tu oublies de choisir, le repas le plus choisi par les autres t’est attribué automatiquement." />
       ) : null}
       {notice ? <Banner text={notice.text} title={notice.title} tone={notice.tone} /> : null}
 
@@ -297,7 +297,7 @@ export default function ClientMenuScreen() {
           ) : (
             <Text style={styles.statusLine}>{state === 'annule' ? 'Repas annulé' : 'Bon appétit !'}</Text>
           )}
-          {editable ? <AppButton label="Je ne mange pas ce jour-là" onPress={() => setConfirmCancel(true)} variant="dangerGhost" /> : null}
+          {editable ? <AppButton label={`Annuler ma commande ${isTomorrow(data) ? 'de demain' : `du ${formatDayChip(data.date)}`}`} onPress={() => setConfirmCancel(true)} variant="dangerOutline" /> : null}
           {state === 'annule' && data.menu_status !== 'verrouille' ? (
             <AppButton
               label="Finalement, je mange"
@@ -315,14 +315,14 @@ export default function ClientMenuScreen() {
       {isFirstDay && data.review_due ? <ReviewCard date={data.review_due.date} onSent={refresh} orderId={data.review_due.order_id} /> : null}
 
       <ConfirmModal
-        cancelLabel="Garder mon repas"
-        confirmLabel={`Oui, pas de repas ${when}`}
+        cancelLabel="Garder ma commande"
+        confirmLabel="Oui, annuler ma commande"
         danger
         loading={cancel.isPending}
-        message={`Tu ne seras pas livré ${when}. Tu peux changer d’avis tant que les commandes sont ouvertes.`}
+        message={`Ton repas ne sera ni préparé ni livré ${when}. Tu peux changer d’avis tant que les commandes sont ouvertes.`}
         onCancel={() => setConfirmCancel(false)}
         onConfirm={() => data.menu && cancel.mutate(data.menu.id)}
-        title="Annuler ton repas ?"
+        title={`Annuler ta commande ${isTomorrow(data) ? 'de demain' : `du ${formatDayMonth(data.date)}`} ?`}
         visible={confirmCancel}
       />
     </Screen>
@@ -367,10 +367,7 @@ function OptionRow({ option, selected, disabled, onPress }: { option: MenuOption
 /** Une ligne d'information discrète (pas un bloc) */
 function Hint({ text }: { text: string }) {
   return (
-    <View style={styles.hint}>
-      <Ionicons color={colors.muted} name="sparkles-outline" size={16} />
-      <Text style={styles.hintText}>{text}</Text>
-    </View>
+    <Text style={styles.hintText}>{text}</Text>
   );
 }
 
@@ -459,8 +456,7 @@ const styles = StyleSheet.create({
   radio: { alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 12, borderColor: colors.border, borderWidth: 1.5 },
   radioSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
   banner: { borderRadius: radii.md, gap: 2, padding: spacing.md },
-  hint: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  hintText: { flex: 1, color: colors.muted, fontSize: 13, lineHeight: 18 },
+  hintText: { color: colors.muted, fontSize: 13, lineHeight: 18 },
   confirmed: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, minHeight: 52, backgroundColor: colors.successSoft, borderRadius: radii.round },
   confirmedText: { color: colors.success, fontSize: 16, fontWeight: '800' },
   statusLine: { color: colors.muted, fontSize: 15, fontWeight: '800', textAlign: 'center', paddingVertical: spacing.sm },
