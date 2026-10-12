@@ -107,7 +107,7 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   C('V8b', 'dimanche 23:59:59 : dernière seconde de la veille, acceptée', 'acceptée', lastSecond.ok ? 'acceptée' : lastSecond.msg, lastSecond.ok, '2026-10-04');
   await sim.clock('2026-10-05', '00:00:00');
   const nextDay = await order(a5[2], sun, a5[2].plan === 'F2');
-  C('V8c', 'lundi 00:00:00 : le repas de lundi n\'est plus à commander (on commande la veille)', 'refusée', nextDay.ok ? 'acceptée' : nextDay.msg, rejected(nextDay, /plus ouvert/), '2026-10-05');
+  C('V8c', 'lundi 00:00:00 : le repas de lundi n\'est plus à commander (on commande la veille)', 'refusée', nextDay.ok ? 'acceptée' : nextDay.msg, rejected(nextDay, /plus ouvert|verrouillé/), '2026-10-05');
 
   // ── Verrouillage planifié (20:00:30) : repas par défaut, journal « système »
   await sim.clock('2026-10-05', '00:00:30');

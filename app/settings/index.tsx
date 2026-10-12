@@ -8,13 +8,16 @@ import { Chips } from '@/components/ui/Chips';
 import { Screen } from '@/components/ui/Screen';
 import { ErrorView, LoadingView } from '@/components/ui/StateViews';
 import { describeOrderAhead, parseDays, type OrderAhead } from '@/features/settings/order-ahead';
+import { DEFAULT_LIMIT_TIME, describeOrderLimit, validateOrderLimit, type LimitMode, type OrderLimit } from '@/features/settings/order-limit';
 import {
   getDefaultMinVotes,
   getOrderAhead,
+  getOrderLimit,
   listAlertRules,
   listMessageTemplates,
   setDefaultMinVotes,
   setOrderAhead,
+  setOrderLimit,
   updateAlertRule,
   updateMessageTemplate,
   type AlertRule,
@@ -47,6 +50,7 @@ export default function SettingsScreen() {
       ))}
       <MinVotesEditor />
       <OrderAheadEditor />
+      <OrderLimitEditor />
       <View style={styles.header}>
         <Text style={styles.title}>Modèles WhatsApp</Text>
         <Text style={styles.description}>Variables disponibles : {'{customer_name}'} et {'{expiration_date}'}. Le message reste modifiable avant l’ouverture de WhatsApp.</Text>
@@ -105,6 +109,74 @@ function MinVotesEditor() {
       </View>
       <View style={styles.rule}>
         <AppInput keyboardType="number-pad" label="Choix minimum" onChangeText={(text) => { setValue(text); setSaved(false); }} value={shown} />
+        <AppButton label={saved ? 'Enregistré' : 'Enregistrer'} loading={saving} onPress={() => void save()} variant="secondary" />
+      </View>
+    </>
+  );
+}
+
+const LIMIT_OPTIONS: { value: LimitMode; label: string }[] = [
+  { value: 'none', label: 'Aucune' },
+  { value: 'veille', label: 'La veille' },
+  { value: 'jour', label: 'Le jour J' }
+];
+
+/** Heure limite de commande : aucune (minuit), la veille à une heure, ou le jour du repas à une heure (midi au plus tard) */
+function OrderLimitEditor() {
+  const queryClient = useQueryClient();
+  const current = useQuery({ queryKey: ['order-limit'], queryFn: getOrderLimit });
+  const [mode, setMode] = useState<LimitMode | null>(null);
+  const [timeText, setTimeText] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (current.isLoading) return null;
+  if (current.error) return <Text style={styles.description}>{getErrorMessage(current.error)}</Text>;
+  const savedValue: OrderLimit = current.data ?? { mode: 'none' };
+  const shownMode = mode ?? savedValue.mode;
+  const savedTime = savedValue.mode === shownMode && savedValue.mode !== 'none' ? savedValue.time : null;
+  const shownTime = timeText ?? savedTime ?? (shownMode === 'none' ? '' : DEFAULT_LIMIT_TIME[shownMode]);
+  const checked = validateOrderLimit(shownMode, shownTime);
+  const save = async () => {
+    setError(null);
+    if (!checked.ok) {
+      setError(checked.error);
+      return;
+    }
+    try {
+      setSaving(true);
+      await setOrderLimit(checked.value);
+      await queryClient.invalidateQueries({ queryKey: ['order-limit'] });
+      setMode(null);
+      setTimeText(null);
+      setSaved(true);
+    } catch (failure) {
+      setError(getErrorMessage(failure));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <>
+      <View style={styles.header}>
+        <Text style={styles.title}>Heure limite de commande</Text>
+        <Text style={styles.description}>
+          Jusqu’à quand un client peut choisir ou changer son repas d’un jour. Le menu se verrouille alors : les repas par défaut sont figés et les bols numérotés.
+        </Text>
+      </View>
+      <View style={styles.rule}>
+        <Chips label="Heure limite" wrap onChange={(value) => { setMode(value); setTimeText(null); setSaved(false); setError(null); }} options={LIMIT_OPTIONS} value={shownMode} />
+        {shownMode !== 'none' ? (
+          <AppInput
+            keyboardType="numbers-and-punctuation"
+            label={shownMode === 'jour' ? 'Heure le jour du repas (midi au plus tard)' : 'Heure la veille du repas'}
+            onChangeText={(text) => { setTimeText(text); setSaved(false); }}
+            placeholder="HH:MM"
+            value={shownTime}
+          />
+        ) : null}
+        <Text style={styles.description}>{checked.ok ? describeOrderLimit(checked.value) : 'Saisissez une heure valide.'}</Text>
+        {error ? <Text accessibilityRole="alert" style={styles.errorText}>{error}</Text> : null}
         <AppButton label={saved ? 'Enregistré' : 'Enregistrer'} loading={saving} onPress={() => void save()} variant="secondary" />
       </View>
     </>

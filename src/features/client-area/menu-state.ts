@@ -68,8 +68,14 @@ export function isTomorrow(menu: TodayMenu): boolean {
   return dayBefore(menu.date) === (menu.order_date ?? dayBefore(menu.date));
 }
 
-/** « demain » ou « le mercredi 14 octobre » */
+/** Le jour affiché est-il aujourd'hui ? (possible quand l'heure limite est réglée sur « le jour J ») */
+export function isToday(menu: TodayMenu): boolean {
+  return menu.order_date !== undefined && menu.date === menu.order_date;
+}
+
+/** « aujourd'hui », « demain » ou « le mercredi 14 octobre » */
 export function whenLabel(menu: TodayMenu): string {
+  if (isToday(menu)) return 'aujourd’hui';
   return isTomorrow(menu) ? 'demain' : `le ${formatDayMonth(menu.date)}`;
 }
 

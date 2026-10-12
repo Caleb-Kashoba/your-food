@@ -64,7 +64,7 @@ const { seed, PLATS, ACCS, VIANDES } = require('./seed');
   const today = await orderOn(c1, '2026-10-05');
   const todayView = await view(c1, '2026-10-05');
   C('A4', 'le repas d\'aujourd\'hui ne se commande plus', 'deux refus', `${today.ok ? 'acceptée' : today.msg} / ${todayView.ok ? 'affiché' : todayView.msg}`,
-    rejected(today, /plus ouvert/) && rejected(todayView, /pas ouvert/), '2026-10-05');
+    rejected(today, /plus ouvert|verrouillé/) && rejected(todayView, /pas ouvert/), '2026-10-05');
 
   // Limite réglable : sans limite, puis 3 jours, puis retour à la semaine
   await setAhead('none');

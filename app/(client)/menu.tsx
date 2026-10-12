@@ -27,7 +27,9 @@ import {
   formatCountdown,
   headlineFor,
   isComplete,
+  formatHour,
   isEditable,
+  isToday,
   isTomorrow,
   picksChanged,
   picksFromOrder,
@@ -149,6 +151,8 @@ export default function ClientMenuScreen() {
   const left = secondsLeft(data, state, now, data.device_offset_ms);
   const notice = NOTICES[state];
   const when = whenLabel(data);
+  // Compte à rebours seulement le jour de l'échéance ; pour les autres jours, on annonce l'échéance
+  const lockToday = data.menu?.lock_date != null && data.menu.lock_date === data.order_date;
   const showChoices = !['aucun_menu', 'non_commence', 'expire', 'inactif', 'premier_jour', 'dernier_jour'].includes(state);
 
   const pick = (category: MealCategory, optionId: string) => {
@@ -172,16 +176,24 @@ export default function ClientMenuScreen() {
         <Text style={styles.date}>
           {state === 'dernier_jour'
             ? `Aujourd’hui, ${formatDayMonth(data.order_date ?? dayBefore(data.date))}.`
-            : isTomorrow(data)
-              ? `${state === 'aucun_menu' ? 'Demain' : 'Au menu demain'}, ${formatDayMonth(data.date)}.`
-              : `${state === 'aucun_menu' ? 'Pas de menu pour' : 'Au menu'} ${formatDayMonth(data.date)}.`}
+            : isToday(data)
+              ? `${state === 'aucun_menu' ? 'Aujourd’hui' : 'Au menu aujourd’hui'}, ${formatDayMonth(data.date)}.`
+              : isTomorrow(data)
+                ? `${state === 'aucun_menu' ? 'Demain' : 'Au menu demain'}, ${formatDayMonth(data.date)}.`
+                : `${state === 'aucun_menu' ? 'Pas de menu pour' : 'Au menu'} ${formatDayMonth(data.date)}.`}
         </Text>
         <Text style={styles.headline}>{headlineFor(state, data)}</Text>
       </View>
 
-      {isFirstDay && data.today_meal ? <TodayMealCard meal={data.today_meal} /> : null}
+      {isFirstDay && data.today_meal && !isToday(data) ? <TodayMealCard meal={data.today_meal} /> : null}
 
-      {showChoices && data.menu && data.menu.lock_time ? (
+      {showChoices && data.menu && data.menu.lock_time && !lockToday && editable && data.menu.lock_date ? (
+        <Text style={styles.deadline}>
+          Commandes ouvertes jusqu’à {formatDayMonth(data.menu.lock_date)}, {formatHour(data.menu.lock_time)}.
+        </Text>
+      ) : null}
+
+      {showChoices && data.menu && data.menu.lock_time && lockToday ? (
         <Card style={styles.countdown}>
           <Ionicons color={state === 'en_retard' ? colors.danger : colors.primary} name="time-outline" size={22} />
           <View style={styles.grow}>
@@ -435,6 +447,7 @@ const styles = StyleSheet.create({
   headline: { color: colors.primaryDark, fontSize: 32, fontWeight: '900', letterSpacing: -0.8, lineHeight: 36 },
   countdown: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   grow: { flex: 1 },
+  deadline: { color: colors.muted, fontSize: 13, fontWeight: '700' },
   timer: { color: colors.primary, fontSize: 28, fontWeight: '900', fontVariant: ['tabular-nums'] },
   timerLate: { color: colors.danger },
   timerLabel: { color: colors.muted, fontSize: 13, fontWeight: '600' },

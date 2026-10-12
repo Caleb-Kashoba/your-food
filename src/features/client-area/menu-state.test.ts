@@ -10,6 +10,7 @@ import {
   formatHour,
   headlineFor,
   isComplete,
+  isToday,
   isTomorrow,
   kinshasaClock,
   picksChanged,
@@ -167,6 +168,14 @@ describe('compte à rebours', () => {
       expect(isTomorrow(jeudi)).toBe(false);
       expect(whenLabel(demain)).toBe('demain');
       expect(whenLabel(jeudi)).toBe('le jeudi 8 octobre');
+    });
+
+    it('nomme « aujourd’hui » quand le jour J est encore ouvert (heure limite « le jour J »)', () => {
+      const ajd = menu({ date: today, order_date: today });
+      expect(isToday(ajd)).toBe(true);
+      expect(isTomorrow(ajd)).toBe(false);
+      expect(whenLabel(ajd)).toBe('aujourd’hui');
+      expect(headlineFor('verrouille', ajd)).toBe('C’est noté pour aujourd’hui.');
     });
 
     it('adapte les titres au jour affiché', () => {

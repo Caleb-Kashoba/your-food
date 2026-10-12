@@ -1,4 +1,5 @@
 import { parseOrderAhead, serializeOrderAhead, type OrderAhead } from '@/features/settings/order-ahead';
+import { parseOrderLimit, serializeOrderLimit, type OrderLimit } from '@/features/settings/order-limit';
 import { requireSupabase } from '@/lib/supabase/client';
 
 export interface AlertRule {
@@ -85,4 +86,17 @@ export async function setOrderAhead(value: OrderAhead): Promise<OrderAhead> {
   const { data, error } = await requireSupabase().rpc('set_order_ahead', { p_value: serializeOrderAhead(value) });
   if (error) throw error;
   return parseOrderAhead(String(data));
+}
+
+/** Heure limite de commande : aucune, la veille ou le jour J (voir order-limit.ts) */
+export async function getOrderLimit(): Promise<OrderLimit> {
+  const { data, error } = await requireSupabase().rpc('get_order_limit');
+  if (error) throw error;
+  return parseOrderLimit(String(data));
+}
+
+export async function setOrderLimit(value: OrderLimit): Promise<OrderLimit> {
+  const { data, error } = await requireSupabase().rpc('set_order_limit', { p_value: serializeOrderLimit(value) });
+  if (error) throw error;
+  return parseOrderLimit(String(data));
 }
