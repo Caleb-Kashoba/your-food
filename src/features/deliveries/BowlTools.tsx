@@ -21,6 +21,8 @@ const ALL = '';
 interface BowlToolsProps {
   /** Bols de la liste affichée (avant le filtre sur le contenu) */
   rows: BoardRow[];
+  /** Tous les bols du jour, quelle que soit l'étape : les nombres du filtre comptent toute la journée */
+  dayRows: BoardRow[];
   filter: BowlFilter;
   onFilter: (filter: BowlFilter) => void;
   sort: SortKey;
@@ -29,28 +31,31 @@ interface BowlToolsProps {
 
 /**
  * Outils de la cuisine : trier les bols (par numéro, plat, accompagnement, viande ou client) et filtrer sur ce qu'ils contiennent.
- * Les nombres à côté de chaque plat tiennent compte des autres filtres choisis : on voit toujours combien de bols restent.
+ * Les nombres à côté de chaque plat comptent TOUS les bols du jour (pas seulement la liste affichée), avec les autres filtres choisis :
+ * ils concordent avec le « Total à préparer ». La ligne du bas dit combien de bols sont affichés dans la liste en cours.
  */
-export function BowlTools({ rows, filter, onFilter, sort, onSort }: BowlToolsProps) {
+export function BowlTools({ rows, dayRows, filter, onFilter, sort, onSort }: BowlToolsProps) {
   const withMeal = rows.filter((row) => row.plat);
-  if (withMeal.length === 0) return null;
+  const dayMeals = dayRows.filter((row) => row.plat);
+  if (dayMeals.length === 0) return null;
 
   const options = (category: 'plat' | 'accompagnement' | 'viande'): ContentOption[] =>
-    bowlContents(filterBowls(withMeal, { ...filter, [category]: null }))[category];
+    bowlContents(filterBowls(dayMeals, { ...filter, [category]: null }))[category];
   const chips = (category: 'plat' | 'accompagnement' | 'viande') => {
     const list = options(category);
     const result = [{ value: ALL, label: 'Tous' }, ...list.map((item) => ({ value: item.name, label: `${item.name} · ${item.count}` }))];
     if (category === 'viande') {
-      const without = bowlContents(filterBowls(withMeal, { ...filter, viande: null })).withoutMeat;
+      const without = bowlContents(filterBowls(dayMeals, { ...filter, viande: null })).withoutMeat;
       if (without > 0) result.push({ value: NO_MEAT, label: `Sans viande · ${without}` });
     }
     return result;
   };
   // Commandes identiques : seules celles qui reviennent au moins deux fois sont proposées (une commande unique n'a rien à regrouper)
-  const combos = bowlCombos(filterBowls(withMeal, { ...filter, combo: null })).filter((combo) => combo.count >= 2 || combo.key === filter.combo);
+  const combos = bowlCombos(filterBowls(dayMeals, { ...filter, combo: null })).filter((combo) => combo.count >= 2 || combo.key === filter.combo);
   const set = (category: 'plat' | 'accompagnement' | 'viande') => (value: string) => onFilter({ ...filter, [category]: value === ALL ? null : value });
   const shown = filterBowls(withMeal, filter).length;
-  const chosenCombo = filter.combo ? bowlCombos(withMeal).find((combo) => combo.key === filter.combo)?.label : null;
+  const matching = filterBowls(dayMeals, filter).length;
+  const chosenCombo = filter.combo ? bowlCombos(dayMeals).find((combo) => combo.key === filter.combo)?.label : null;
   const active = [chosenCombo, filter.plat, filter.accompagnement, filter.viande === NO_MEAT ? 'sans viande' : filter.viande].filter(Boolean).join(' + ');
 
   return (
@@ -79,7 +84,11 @@ export function BowlTools({ rows, filter, onFilter, sort, onSort }: BowlToolsPro
       <Chips onChange={set('viande')} options={chips('viande')} value={filter.viande ?? ALL} />
       <View style={styles.summary}>
         <Text style={styles.summaryText}>
-          {hasFilter(filter) ? `${shown} bol${shown > 1 ? 's' : ''} sur ${withMeal.length} : ${active}` : `${withMeal.length} bol${withMeal.length > 1 ? 's' : ''}`}
+          {hasFilter(filter)
+            ? `${matching} bol${matching > 1 ? 's' : ''} aujourd’hui : ${active}${shown !== matching ? ` · ${shown} dans cette liste` : ''}`
+            : shown === dayMeals.length
+              ? `${shown} bol${shown > 1 ? 's' : ''}`
+              : `${shown} bol${shown > 1 ? 's' : ''} dans cette liste, ${dayMeals.length} aujourd’hui`}
         </Text>
         {hasFilter(filter) ? (
           <Text accessibilityRole="button" onPress={() => onFilter({})} style={styles.reset}>Tout afficher</Text>

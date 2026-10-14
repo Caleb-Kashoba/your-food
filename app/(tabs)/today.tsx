@@ -261,7 +261,7 @@ function PreparationPart({ rows, filter, onFilter, onAct, canAct, pendingId, sor
         <Text style={styles.hint}>Les bols seront numérotés au verrouillage du menu (minuit). Tu peux déjà les trier et les filtrer.</Text>
       ) : null}
       <Chips onChange={onFilter} options={PREP_FILTERS} value={filter} />
-      <BowlTools filter={contentFilter} onFilter={onContentFilter} onSort={onSort} rows={visible} sort={sort} />
+      <BowlTools dayRows={rows} filter={contentFilter} onFilter={onContentFilter} onSort={onSort} rows={visible} sort={sort} />
       {shownRows.length === 0 ? <Text style={styles.empty}>Rien à afficher avec ces filtres.</Text> : null}
       {groups.map((group) => (
         <View key={group.title ?? 'tous'} style={styles.group}>
@@ -304,7 +304,7 @@ function DeliveryPart({ rows, filter, onFilter, onAct, canAct, pendingId, sort, 
   return (
     <>
       <Chips onChange={onFilter} options={options} value={filter} />
-      <BowlTools filter={contentFilter} onFilter={onContentFilter} onSort={onSort} rows={stageRows} sort={sort} />
+      <BowlTools dayRows={rows} filter={contentFilter} onFilter={onContentFilter} onSort={onSort} rows={stageRows} sort={sort} />
       {visible.length === 0 ? (
         <Text style={styles.empty}>
           {filter === 'a_livrer' && stageRows.length === 0 ? 'Aucun repas prêt à livrer pour le moment : prépare les bols dans l’onglet Préparation.' : 'Rien à afficher avec ces filtres.'}
