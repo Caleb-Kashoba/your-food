@@ -44,7 +44,7 @@ export function calculatePaymentState(expected: number, payments: number[]): {
   };
 }
 
-// ─── Abonnements en semaines (lundi → vendredi), reprise des règles de la première application ───
+// ─── Abonnements en semaines : 5 jours ouvrés par semaine, début un jour ouvré quelconque ───
 
 /** Prix par semaine d'une formule (une formule d'un mois compte 4 semaines) */
 export function weeklyPrice(plan: { price: number; durationValue: number; durationUnit: DurationUnit }): number {
@@ -56,19 +56,34 @@ export function subscriptionTotal(weekly: number, weeks: number, override?: numb
   return override != null && override > 0 ? override : weekly * weeks;
 }
 
-/** Dernier jour d'un abonnement de `weeks` semaines commençant un lundi : le vendredi de la dernière semaine */
-export function fridayAfterWeeks(mondayDate: string, weeks: number): string {
-  return calculateInclusiveEndDate(mondayDate, weeks * 7 - 2, 'day');
+/** Jour ouvré (lundi → vendredi) ? */
+export function isWorkingDay(date: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && getISODay(parseISO(date)) <= 5;
 }
 
-/** Premier lundi à partir d'une date (la date elle-même si c'est un lundi) */
-export function mondayOnOrAfter(date: string): string {
+/** Premier jour ouvré à partir d'une date (la date elle-même si c'est un jour ouvré) */
+export function workingDayOnOrAfter(date: string): string {
   const day = getISODay(parseISO(date));
-  return day === 1 ? date : format(addDays(parseISO(date), 8 - day), 'yyyy-MM-dd');
+  return day <= 5 ? date : format(addDays(parseISO(date), 8 - day), 'yyyy-MM-dd');
 }
 
-export function isMonday(date: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) && getISODay(parseISO(date)) === 1;
+/** La date `count` jours ouvrés plus tard (lundi → vendredi) */
+export function addWorkingDays(date: string, count: number): string {
+  let current = parseISO(date);
+  let remaining = count;
+  while (remaining > 0) {
+    current = addDays(current, 1);
+    if (getISODay(current) <= 5) remaining -= 1;
+  }
+  return format(current, 'yyyy-MM-dd');
+}
+
+/**
+ * Dernier jour d'un abonnement de `weeks` semaines qui commence le jour ouvré `start` : une semaine = 5 jours ouvrés,
+ * le premier jour compte. Un abonnement du mercredi 14 d'une semaine finit le mardi 20 ; du lundi, il finit le vendredi.
+ */
+export function endOfWeeks(start: string, weeks: number): string {
+  return addWorkingDays(start, weeks * 5 - 1);
 }
 
 /** Durées proposées : 1 mois = 4 semaines */

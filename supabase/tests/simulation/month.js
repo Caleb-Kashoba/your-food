@@ -689,8 +689,8 @@ const LOCK = 20 * 3600;
     const over = clients.find((c) => c.group === 'A5' && c.subs[0]);
     const x = await sim.rpc(admin, 'create_subscription_weeks', [over.id, plans[over.plan], '2026-10-12', 1, null, null, null]);
     C('S2', 'abonnements', 'abonnement qui chevauche l\'abonnement en cours', 'refusé', x.ok ? 'accepté' : x.msg, expectRejected(x, /chevauche/));
-    const nm = await sim.rpc(admin, 'create_subscription_weeks', [group[7].id, plans[group[7].plan], '2026-10-20', 1, null, null, null]);
-    C('S3', 'abonnements', 'abonnement qui ne commence pas un lundi', 'refusé', nm.ok ? 'accepté' : nm.msg, expectRejected(nm, /lundi/));
+    const nm = await sim.rpc(admin, 'create_subscription_weeks', [group[7].id, plans[group[7].plan], '2026-10-18', 1, null, null, null]);
+    C('S3', 'abonnements', 'abonnement qui commence un week-end (dimanche)', 'refusé', nm.ok ? 'accepté' : nm.msg, expectRejected(nm, /jour ouvré/));
     for (const w of [0, 53]) {
       const bad = await sim.rpc(admin, 'create_subscription_weeks', [group[7].id, plans[group[7].plan], '2026-12-07', w, null, null, null]);
       C('S3b', 'abonnements', `durée de ${w} semaine(s)`, 'refusée', bad.ok ? 'acceptée' : bad.msg, expectRejected(bad, /1 et 52/));

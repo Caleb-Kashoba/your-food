@@ -14,13 +14,13 @@ import { listPlans } from '@/features/plans/plans.service';
 import { createSubscriptionWeeks, listSubscriptions } from '@/features/subscriptions/subscriptions.service';
 import {
   WEEK_CHOICES,
-  fridayAfterWeeks,
-  isMonday,
-  mondayOnOrAfter,
+  endOfWeeks,
+  isWorkingDay,
+  workingDayOnOrAfter,
   subscriptionTotal,
   weeklyPrice
 } from '@/features/subscriptions/subscription-rules';
-import { addLocalDays, formatDayChip, formatLocalDate, localDateKey, mondayOf } from '@/lib/dates';
+import { addLocalDays, formatDayChip, formatLocalDate, localDateKey } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { formatMoney } from '@/lib/money';
 import { colors, radii, spacing } from '@/theme/colors';
@@ -33,7 +33,7 @@ function simplify(text: string): string {
 }
 
 /**
- * Nouvel abonnement : toujours du lundi au vendredi, durée en semaines (1 mois = 4 semaines),
+ * Nouvel abonnement : début un jour ouvré quelconque, durée en semaines de 5 jours ouvrés (1 mois = 4 semaines),
  * prix de la formule × semaines, avec un prix total exceptionnel possible pour ce client.
  * Un client n'a jamais deux abonnements en même temps : si un abonnement court encore, le nouveau commence après
  * (au plus un abonnement à venir). Pour simplement ajouter des semaines, on rallonge l'abonnement depuis sa fiche.
@@ -49,7 +49,7 @@ export default function NewSubscriptionScreen() {
   const [search, setSearch] = useState('');
   const [pickedPlan, setPickedPlan] = useState('');
   const [weeks, setWeeks] = useState(1);
-  const [pickedStart, setPickedStart] = useState<string | null>(params.startDate ? mondayOnOrAfter(params.startDate) : null);
+  const [pickedStart, setPickedStart] = useState<string | null>(params.startDate ? workingDayOnOrAfter(params.startDate) : null);
   const [override, setOverride] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -61,12 +61,12 @@ export default function NewSubscriptionScreen() {
   const current = live.find((item) => item.startDate <= today);
   const upcoming = live.find((item) => item.startDate > today);
   const latest = [...(history.data ?? [])].filter((item) => item.adminStatus !== 'cancelled').sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
-  const suggestedStart = current ? mondayOnOrAfter(addLocalDays(current.endDate, 1)) : null;
+  const suggestedStart = current ? workingDayOnOrAfter(addLocalDays(current.endDate, 1)) : null;
 
-  // Valeurs proposées tant que l'administratrice n'a rien choisi : formule du dernier abonnement, lundi qui suit l'abonnement en cours
+  // Valeurs proposées tant que l'administratrice n'a rien choisi : formule du dernier abonnement, jour ouvré qui suit l'abonnement en cours
   const previousPlanId = latest ? plans.data?.find((item) => item.name === latest.planName)?.id ?? '' : '';
   const planId = pickedPlan || previousPlanId;
-  const startDate = pickedStart ?? suggestedStart ?? mondayOnOrAfter(today);
+  const startDate = pickedStart ?? suggestedStart ?? workingDayOnOrAfter(addLocalDays(today, 1));
   const setPlanId = setPickedPlan;
   const setStartDate = setPickedStart;
 
@@ -80,12 +80,14 @@ export default function NewSubscriptionScreen() {
   const overrideValue = Number.parseFloat(override.replace(/\s/g, '').replace(',', '.'));
   const total = weekly !== null ? subscriptionTotal(weekly, weeks, Number.isFinite(overrideValue) ? overrideValue : null) : null;
   const chosenStart = startDate;
-  const validStart = isMonday(chosenStart);
-  const endDate = validStart ? fridayAfterWeeks(chosenStart, weeks) : null;
+  const validStart = isWorkingDay(chosenStart);
+  const endDate = validStart ? endOfWeeks(chosenStart, weeks) : null;
 
-  // Lundis proposés : celui de cette semaine (début rétroactif), les trois suivants, et le lundi qui suit l'abonnement en cours
-  const thisMonday = mondayOf(today);
-  const mondays = [...new Set([thisMonday, addLocalDays(thisMonday, 7), addLocalDays(thisMonday, 14), addLocalDays(thisMonday, 21), ...(suggestedStart ? [suggestedStart] : [])])].sort();
+  // Débuts proposés : aujourd'hui (ou le prochain jour ouvré), les quatre jours ouvrés suivants, et le jour ouvré qui suit l'abonnement en cours
+  const firstStart = workingDayOnOrAfter(today);
+  const starts = [firstStart];
+  while (starts.length < 5) starts.push(workingDayOnOrAfter(addLocalDays(starts[starts.length - 1] ?? firstStart, 1)));
+  const proposed = [...new Set([...starts, ...(suggestedStart ? [suggestedStart] : [])])].sort();
 
   const save = async () => {
     if (!customerId || !planId) {
@@ -93,7 +95,7 @@ export default function NewSubscriptionScreen() {
       return;
     }
     if (!validStart) {
-      setError('Un abonnement commence un lundi : choisis un lundi dans la liste ou dans le calendrier.');
+      setError('Un abonnement commence un jour ouvré (du lundi au vendredi) : choisis un jour dans la liste ou dans le calendrier.');
       return;
     }
     try {
@@ -194,17 +196,17 @@ export default function NewSubscriptionScreen() {
         value={String(weeks)}
       />
 
-      <Text style={styles.sectionTitle}>Début (un lundi)</Text>
+      <Text style={styles.sectionTitle}>Début</Text>
       <Chips
         onChange={setStartDate}
-        options={mondays.map((value) => ({
+        options={proposed.map((value) => ({
           value,
-          label: `${formatDayChip(value)}${value === thisMonday ? ' (cette semaine)' : ''}${value === suggestedStart ? ' (après l’actuel)' : ''}`
+          label: `${formatDayChip(value)}${value === today ? ' (aujourd’hui)' : ''}${value === suggestedStart ? ' (après l’actuel)' : ''}`
         }))}
-        value={mondays.includes(startDate) ? startDate : null}
+        value={proposed.includes(startDate) ? startDate : null}
       />
-      <DateField label="Ou un autre lundi" mondaysOnly onChange={setStartDate} value={startDate} />
-      {endDate ? <Text style={styles.endDate}>Du {formatLocalDate(chosenStart)} au {formatLocalDate(endDate)} (lundi → vendredi)</Text> : null}
+      <DateField label="Ou une autre date" weekdaysOnly onChange={setStartDate} value={startDate} />
+      {endDate ? <Text style={styles.endDate}>Du {formatLocalDate(chosenStart)} au {formatLocalDate(endDate)} ({weeks * 5} jours ouvrés)</Text> : null}
       {total !== null ? (
         <Text style={styles.total}>
           Total : {formatMoney(total, plan?.currency)}{override.trim() ? ' (prix exceptionnel)' : ` · ${weeks} × ${formatMoney(weekly ?? 0, plan?.currency)}`}

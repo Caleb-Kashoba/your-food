@@ -15,7 +15,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { listPayments } from '@/features/payments/payments.service';
 import { listPlans } from '@/features/plans/plans.service';
-import { WEEK_CHOICES, fridayAfterWeeks, mondayOnOrAfter, weeklyPrice } from '@/features/subscriptions/subscription-rules';
+import { WEEK_CHOICES, addWorkingDays, endOfWeeks, weeklyPrice, workingDayOnOrAfter } from '@/features/subscriptions/subscription-rules';
 import {
   deleteSubscription,
   changeSubscriptionPlan,
@@ -187,7 +187,7 @@ export default function SubscriptionDetailScreen() {
 
 /**
  * Continuer l'abonnement : même formule → on le rallonge (fin + N semaines) ;
- * autre formule → un nouvel abonnement commence le lundi qui suit la fin de celui-ci.
+ * autre formule → un nouvel abonnement commence le jour ouvré qui suit la fin de celui-ci. Une semaine = 5 jours ouvrés.
  */
 function ContinueEditor({ id, customerId, planId, endDate, onSaved }: { id: string; customerId: string; planId: string; endDate: string; onSaved: () => Promise<void> }) {
   const plans = useQuery({ queryKey: ['plans', 'active'], queryFn: () => listPlans(true) });
@@ -196,8 +196,8 @@ function ContinueEditor({ id, customerId, planId, endDate, onSaved }: { id: stri
   const [saving, setSaving] = useState(false);
   const plan = plans.data?.find((item) => item.id === choice);
   const same = choice === planId;
-  const nextStart = mondayOnOrAfter(addLocalDays(endDate, 1));
-  const newEnd = same ? addLocalDays(endDate, weeks * 7) : fridayAfterWeeks(nextStart, weeks);
+  const nextStart = workingDayOnOrAfter(addLocalDays(endDate, 1));
+  const newEnd = same ? addWorkingDays(endDate, weeks * 5) : endOfWeeks(nextStart, weeks);
   const amount = plan ? weeklyPrice(plan) * weeks : null;
   const summary = same
     ? `La fin passe du ${formatLocalDate(endDate)} au ${formatLocalDate(newEnd)}${amount !== null ? ` (+ ${formatMoney(amount, plan?.currency)})` : ''}.`
@@ -222,7 +222,7 @@ function ContinueEditor({ id, customerId, planId, endDate, onSaved }: { id: stri
   return (
     <View style={styles.notesEditor}>
       <Text style={styles.sectionTitle}>Prolonger</Text>
-      <Text style={styles.meta}>Même formule : l’abonnement est rallongé. Autre formule : un nouvel abonnement commence le lundi qui suit la fin de celui-ci.</Text>
+      <Text style={styles.meta}>Même formule : l’abonnement est rallongé. Autre formule : un nouvel abonnement commence le jour ouvré qui suit la fin de celui-ci. Une semaine = 5 jours ouvrés.</Text>
       <Chips onChange={(value) => setWeeks(Number(value))} options={WEEK_CHOICES.map((item) => ({ value: String(item.weeks), label: item.label }))} value={String(weeks)} />
       {plans.data ? (
         <Chips onChange={setChoice} options={plans.data.map((item) => ({ value: item.id, label: `${item.name}${item.id === planId ? ' (actuelle)' : ''}` }))} value={choice} />

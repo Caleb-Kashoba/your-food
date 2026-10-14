@@ -14,8 +14,8 @@ interface DateFieldProps {
   /** AAAA-MM-JJ */
   value: string;
   onChange: (value: string) => void;
-  /** Seuls les lundis sont choisissables (début d'abonnement) */
-  mondaysOnly?: boolean;
+  /** Seuls les jours ouvrés (lundi → vendredi) sont choisissables (début d'abonnement) */
+  weekdaysOnly?: boolean;
   /** Dates choisissables : de `min` à `max` (AAAA-MM-JJ) */
   min?: string;
   max?: string;
@@ -26,14 +26,14 @@ interface DateFieldProps {
  * Sélecteur de date : un bouton qui affiche la date en toutes lettres, et un calendrier en fenêtre.
  * Remplace la saisie « AAAA-MM-JJ » partout (même comportement sur téléphone et ordinateur).
  */
-export function DateField({ label, value, onChange, mondaysOnly, min, max, help }: DateFieldProps) {
+export function DateField({ label, value, onChange, weekdaysOnly, min, max, help }: DateFieldProps) {
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(value);
   const today = localDateKey();
   const weeks = monthGrid(month);
 
   const allowed = (date: string, weekday: number) =>
-    (!mondaysOnly || weekday === 1) && (!min || date >= min) && (!max || date <= max);
+    (!weekdaysOnly || weekday <= 5) && (!min || date >= min) && (!max || date <= max);
   const pick = (date: string) => {
     onChange(date);
     setOpen(false);
@@ -93,7 +93,7 @@ export function DateField({ label, value, onChange, mondaysOnly, min, max, help 
                 })}
               </View>
             ))}
-            {mondaysOnly ? <Text style={styles.help}>Un abonnement commence toujours un lundi : seuls les lundis sont proposés.</Text> : null}
+            {weekdaysOnly ? <Text style={styles.help}>Un abonnement commence un jour ouvré : le week-end n’est pas proposé.</Text> : null}
             <AppButton label="Fermer" onPress={() => setOpen(false)} variant="secondary" />
           </Pressable>
         </Pressable>

@@ -40,6 +40,7 @@ Variables : `SIM_HOST`, `SIM_PORT` (55432), `SIM_USER`, `SIM_PASSWORD`, `SIM_DB`
 | `customer-status.js` | Statut des clients (21 cas) : actif / inactif 2 jours ouvrés après la fin / ancien client sur approbation, refus = +2 semaines, réactivation, droits (`SIM_DB=fusion_sim node customer-status.js`, sur une base vierge) |
 | `order-ahead.js` | Commander à l'avance (21 cas) : fenêtre « jusqu'au vendredi », limite réglable (N jours) ou désactivée, premier jour, fin d'abonnement, heure limite, verrouillage, modification d'un menu déjà répondu (`SIM_DB=fusion_sim node order-ahead.js`, sur une base vierge) |
 | `order-limit.js` | Heure limite de commande (11 cas) : aucune, la veille à HH:MM, le jour J à HH:MM (midi au plus tard), verrouillage et numérotation des bols à l'heure, ancien réglage, premier jour (`SIM_DB=fusion_sim node order-limit.js`, sur une base vierge) |
+| `weekday-start.js` | Abonnement qui commence un jour ouvré quelconque (7 cas) : une semaine = 5 jours ouvrés, rallonger à la suite de la fin, abonnement suivant le jour ouvré qui suit, week-end refusé (`SIM_DB=fusion_sim node weekday-start.js`, sur une base vierge) |
 | `mutations/`, `run-mutations.sh` | Pannes injectées |
 
 ## Limites

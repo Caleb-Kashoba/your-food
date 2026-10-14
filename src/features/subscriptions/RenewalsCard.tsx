@@ -7,7 +7,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Card } from '@/components/ui/Card';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { listSubscriptionsToRenew, renewSubscriptionWeeks, type RenewalItem } from '@/features/subscriptions/subscriptions.service';
-import { addLocalDays, formatDayChip, formatLocalDate } from '@/lib/dates';
+import { addWorkingDays } from '@/features/subscriptions/subscription-rules';
+import { formatDayChip, formatLocalDate } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { colors, radii, spacing } from '@/theme/colors';
 
@@ -15,7 +16,7 @@ const VISIBLE_ROWS = 5;
 
 /** Nouvelle fin après un rallongement d'une semaine */
 export function extendedEndDate(endDate: string): string {
-  return addLocalDays(endDate, 7);
+  return addWorkingDays(endDate, 5);
 }
 
 function endLabel(item: RenewalItem): string {
